@@ -46,7 +46,7 @@ function route() {
   if (parts[0] === 'q' && parts[1]) return viewQuote(parts[1]);
   if (parts[0] === 'tpl' && parts[1] === 'new') return viewTplForm();
   if (parts[0] === 'tpl' && parts[2] === 'edit') return viewTplForm(parts[1]);
-  if (parts[0] === 'tpl' && parts[1]) return viewTplDetail(parts[1]);
+  if (parts[0] === 'tpl' && parts[1]) return viewTplUse(parts[1]);
   if (parts[0] === 'tpl') return viewTplList();
   if (parts[0] === 'design') return viewStub('设计台', '二期：一键改款出图、设计灵感库、样衣参考尺寸。');
   if (parts[0] === 'pattern') return viewStub('制版台', '二期：制版工具、公式计算器、纸样库。');
@@ -386,152 +386,332 @@ async function viewQuote(qid) {
   };
 }
 
-/* ---------------- 回复模板库 v0.2.0 ---------------- */
+/* ---------------- 回复模板库 v0.3.0（逻辑模板 × 语言变体 × 类型化变量） ---------------- */
 const TPL_LANG = { EN: '英文', ES: '西语', PT: '葡语', FR: '法语', DE: '德语', AR: '阿语' };
 const TPL_SCENE = { first: '首回', ask: '追问', quote: '报价', nudge: '跟进' };
-const SLOT_LABEL = { buyer_name: '买家名', product: '产品', price: '价格', lead_time: '交期', quantity: '数量', country: '国家', size: '尺码', color: '颜色' };
-const slotsOf = (body) => {
-  const out = []; const re = /\{\{\s*([a-z_]+)\s*\}\}/g; let m;
-  while ((m = re.exec(body))) if (!out.includes(m[1])) out.push(m[1]);
-  return out;
-};
-const clientRender = (body, slots) =>
-  body.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, k) => slots[k] ?? '');
+const SCENE_ORDER = ['first', 'ask', 'quote', 'nudge'];
+const VAR_TYPES = ['text', 'number', 'date'];
+const VAR_TYPE_ZH = { text: '文本', number: '数字', date: '日期' };
+let tplQuery = '';
+const tplLastLang = () => localStorage.getItem('tpl_last_lang') || 'EN';
 
-let tplLang = '', tplScene = '';
-
+/* ---------- 列表：搜索 + 常用 + 场景分组 ---------- */
 async function viewTplList() {
   setNav('tpl');
   app.innerHTML = `${topbar('回复模板库')}
     <div class="page" style="padding-top:10px">
-      <div class="muted">语言</div>
-      <div class="chips" id="t-langs"></div>
-      <div class="muted">场景</div>
-      <div class="chips" id="t-scenes"></div>
-      <button class="btn ghost" id="t-new">+ 新增自定义模板</button>
-      <div class="mt8" id="t-list"></div>
+      <input id="t-q" class="searchbar" placeholder="搜索：标题 / 正文 / 使用说明" value="${esc(tplQuery)}" autocomplete="off">
+      <button class="btn ghost" id="t-new">+ 新增模板</button>
+      <div id="t-list" class="mt8"><div class="empty">加载中…</div></div>
     </div>`;
-  const paintChips = (el, map, cur, cb) => {
-    el.innerHTML = [`<button class="chip ${!cur ? 'on' : ''}" data-v="">全部</button>`,
-      ...Object.entries(map).map(([k, v]) => `<button class="chip ${cur === k ? 'on' : ''}" data-v="${k}">${v}</button>`)].join('');
-    el.querySelectorAll('.chip').forEach(b => b.onclick = () => cb(b.dataset.v));
-  };
-  paintChips($('#t-langs'), TPL_LANG, tplLang, v => { tplLang = v; viewTplList(); });
-  paintChips($('#t-scenes'), TPL_SCENE, tplScene, v => { tplScene = v; viewTplList(); });
   $('#t-new').onclick = () => location.hash = '#/tpl/new';
-  const render = async () => {
-    let list;
-    try {
-      list = await api('/api/reply-templates?' + new URLSearchParams({ lang: tplLang, scene: tplScene }));
-    } catch (e) { $('#t-list').innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
-    $('#t-list').innerHTML = list.length ? list.map(t => `
-      <div class="card tappable" data-id="${t.id}">
-        <div class="rowline"><span class="grow" style="font-weight:700">${esc(t.title)}</span>
-          <span class="badge dim">${esc(TPL_LANG[t.lang] || t.lang)}·${esc(TPL_SCENE[t.scene] || t.scene)}</span></div>
-        ${t.note_zh ? `<div class="muted mt4">${esc(t.note_zh)}</div>` : ''}
-        ${t.is_seed ? '' : '<div class="muted mt4">自定义</div>'}
-      </div>`).join('')
-      : `<div class="empty">没有符合的模板，换筛选条件或新增一条</div>`;
-    $('#t-list').querySelectorAll('.card').forEach(c => c.onclick = () => location.hash = '#/tpl/' + c.dataset.id);
+  const rowHtml = (t) => `
+    <div class="card tappable" data-id="${t.id}">
+      <div class="rowline"><span class="grow" style="font-weight:700">${esc(t.title)}</span>
+        ${t.usage_count > 0 ? `<span class="muted" style="font-size:11px;flex-shrink:0">用过${t.usage_count}</span>` : ''}</div>
+      ${t.note_zh ? `<div class="muted mt4" style="font-size:12px">${esc(t.note_zh)}</div>` : ''}
+      <div class="mt4">${t.langs.map((l) => `<span class="badge dim" style="margin-right:4px">${l}</span>`).join('')}</div>
+    </div>`;
+  const draw = (list) => {
+    const el = $('#t-list');
+    if (!list.length) { el.innerHTML = `<div class="empty">没有符合的模板，换个关键词或新增一条</div>`; return; }
+    let h = '';
+    if (!tplQuery.trim()) {
+      const fav = list.filter((t) => t.usage_count > 0).slice(0, 5);
+      if (fav.length) h += `<div class="sechead">常用</div>` + fav.map(rowHtml).join('');
+    }
+    for (const sc of SCENE_ORDER) {
+      const g = list.filter((t) => t.scene === sc);
+      if (g.length) h += `<div class="sechead">${TPL_SCENE[sc]}</div>` + g.map(rowHtml).join('');
+    }
+    const rest = list.filter((t) => !SCENE_ORDER.includes(t.scene));
+    if (rest.length) h += `<div class="sechead">其他</div>` + rest.map(rowHtml).join('');
+    el.innerHTML = h;
+    el.querySelectorAll('.card').forEach((c) => c.onclick = () => location.hash = '#/tpl/' + c.dataset.id);
   };
-  render();
+  let timer = null;
+  const load = async () => {
+    try { draw(await api('/api/reply-templates' + (tplQuery.trim() ? '?q=' + encodeURIComponent(tplQuery.trim()) : ''))); }
+    catch (e) { $('#t-list').innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
+  };
+  $('#t-q').oninput = (e) => {
+    tplQuery = e.target.value;
+    clearTimeout(timer);
+    timer = setTimeout(load, 350);
+  };
+  load();
 }
 
-async function viewTplDetail(id) {
+/* ---------- 使用页：语言切换 + 类型化填空 + 底部常驻复制条 ---------- */
+async function viewTplUse(id) {
   setNav('tpl');
   app.innerHTML = `${topbar('加载中…', '#/tpl')}<div class="page"><div class="empty">加载中…</div></div>`;
   let t;
   try { t = await api('/api/reply-templates/' + id); }
   catch (e) { app.innerHTML = `${topbar('出错', '#/tpl')}<div class="page"><div class="empty">${esc(e.message)}</div></div>`; return; }
-  const slots = slotsOf(t.body);
-  const needsPrice = t.body.includes('{{price}}'), needsLead = t.body.includes('{{lead_time}}');
-  app.innerHTML = `${topbar(t.title, '#/tpl')}
-  <div class="page">
-    <div class="rowline"><span class="badge">${esc(TPL_LANG[t.lang] || t.lang)}·${esc(TPL_SCENE[t.scene] || t.scene)}</span>
-      ${t.source_buyer ? `<span class="muted">来源：${esc(t.source_buyer)}</span>` : ''}</div>
-    ${t.note_zh ? `<div class="card mt8"><div class="muted">什么时候用</div><div class="mt4">${esc(t.note_zh)}</div></div>` : ''}
-    <div class="card"><div style="font-weight:700;margin-bottom:6px">填空</div>
-      <div id="d-slots">${slots.length ? slots.map(s => `
-        <label class="fl" style="margin-top:${s === slots[0] ? '0' : '10px'}">${esc(SLOT_LABEL[s] || s)}${s === 'price' || s === 'lead_time' ? '（必填）' : ''}</label>
-        <input id="slot-${s}" data-slot="${s}" placeholder="填写${esc(SLOT_LABEL[s] || s)}"
-          ${s === 'price' || s === 'lead_time' ? 'inputmode="decimal"' : ''}>`).join('')
-        : '<div class="muted">这条模板没有填空位，可直接复制</div>'}</div>
-    </div>
-    <div class="card"><div style="font-weight:700">实时预览</div><div class="preview" id="d-prev"></div></div>
-    <div class="btnrow">
-      <button class="btn ghost" id="d-edit">编辑</button>
-      <button class="btn danger" id="d-del">删除</button>
-    </div>
-    <button class="btn mt8" id="d-copy">复制回复文本</button>
-    <div class="muted mt8" style="text-align:center">红线：价格/交期没填时不许复制发出</div>
-  </div>`;
+  if (!t.locales.length) {
+    app.innerHTML = `${topbar(t.key, '#/tpl')}<div class="page"><div class="empty">该模板没有任何语言版本，请编辑补充</div></div>`;
+    return;
+  }
+  let snippets = [];
+  try { snippets = await api('/api/snippets'); } catch {}
+  const state = { lang: null, slots: {}, notice: '' };
+  const avail = t.locales.map((l) => l.lang);
+  const pickStart = () => {
+    const last = tplLastLang();
+    if (avail.includes(last)) return last;
+    const en = avail.includes('EN') ? 'EN' : avail[0];
+    return en;
+  };
+  state.lang = pickStart();
 
-  const cur = () => {
-    const o = {};
-    app.querySelectorAll('[data-slot]').forEach(i => o[i.dataset.slot] = i.value.trim());
-    return o;
+  const expandLocal = (body, lang) =>
+    body.replace(/\{\{\s*snippet:([a-z_]+)\s*\}\}/g, (_, k) => {
+      const s = snippets.find((x) => x.key === k && x.lang === lang)
+        || snippets.find((x) => x.key === k && x.lang === 'EN');
+      return s ? s.body : '';
+    });
+  const locOf = () => t.locales.find((l) => l.lang === state.lang) || t.locales[0];
+  const previewText = () =>
+    expandLocal(locOf().body, locOf().lang)
+      .replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, k) => (state.slots[k] ?? ''));
+  const missing = () => (t.vars || [])
+    .filter((v) => v.required && !String(state.slots[v.name] || '').trim());
+
+  const paint = () => {
+    const loc = locOf();
+    const miss = missing();
+    app.innerHTML = `${topbar(loc.title, '#/tpl')}
+    <div class="page" style="padding-bottom:8px">
+      <div class="seg" id="u-langs">${avail.map((l) =>
+        `<button class="chip ${l === state.lang ? 'on' : ''}" data-lang="${l}">${l} ${TPL_LANG[l]}</button>`).join('')}
+      </div>
+      ${state.notice ? `<div class="notice">${esc(state.notice)}</div>` : ''}
+      ${t.note_zh ? `<details class="card mt8"><summary style="font-weight:700;font-size:13px">什么时候用</summary><div class="muted mt4">${esc(t.note_zh)}</div></details>` : ''}
+      <div class="card mt8"><div style="font-weight:700;margin-bottom:4px">填空</div>
+        <div id="u-slots">${(t.vars || []).length ? t.vars.map((v) => `
+          <label class="fl" style="margin-top:10px">${esc(v.label_zh || v.name)}${v.required ? ' <span style="color:var(--danger)">*</span>' : ''}
+            <span class="muted" style="font-weight:400"> · ${VAR_TYPE_ZH[v.type] || '文本'}</span></label>
+          ${v.type === 'date'
+            ? `<input type="date" data-slot="${esc(v.name)}" value="${esc(state.slots[v.name] || '')}">`
+            : `<input data-slot="${esc(v.name)}" value="${esc(state.slots[v.name] || '')}"
+                ${v.type === 'number' ? 'inputmode="decimal"' : ''}
+                placeholder="${v.sample ? '如：' + esc(v.sample) : '填写' + esc(v.label_zh || v.name)}">`
+          }`).join('')
+          : '<div class="muted">这条模板没有填空位，可直接复制</div>'}</div>
+      </div>
+      <div class="card mt8"><div style="font-weight:700">实时预览 <span class="muted" style="font-weight:400">· ${loc.lang} ${TPL_LANG[loc.lang]}</span></div>
+        <div class="preview" id="u-prev"></div>
+        <div class="lockbar">共享片段 · 落款（${loc.lang}），如需修改请到片段管理</div>
+      </div>
+      <div class="btnrow mt8">
+        <button class="btn ghost" id="u-edit">编辑模板</button>
+        <button class="btn danger" id="u-del">删除</button>
+      </div>
+      <div style="height:8px"></div>
+      <div class="stickybar">
+        <div class="miss" id="u-miss">${miss.length ? '还差：' + esc(miss.map((v) => v.label_zh || v.name).join('、')) : ''}</div>
+        <button class="btn ${miss.length ? 'dim' : ''}" id="u-copy">复制回复文本</button>
+        <div class="muted mt8" style="text-align:center;font-size:11px">红线：必填项没填时不许复制发出</div>
+      </div>
+    </div>`;
+    $('#u-prev').textContent = previewText();
+    app.querySelectorAll('[data-slot]').forEach((i) => {
+      i.oninput = () => {
+        state.slots[i.dataset.slot] = i.value.trim();
+        $('#u-prev').textContent = previewText();
+        const m = missing();
+        $('#u-miss').textContent = m.length ? '还差：' + m.map((v) => v.label_zh || v.name).join('、') : '';
+        $('#u-copy').classList.toggle('dim', m.length > 0);
+      };
+    });
+    app.querySelectorAll('#u-langs .chip').forEach((b) => {
+      b.onclick = () => {
+        state.lang = b.dataset.lang;
+        localStorage.setItem('tpl_last_lang', state.lang);
+        state.notice = '';
+        paint();
+      };
+    });
+    $('#u-copy').onclick = async () => {
+      const m = missing();
+      if (m.length) return toast(`红线：${m.map((v) => v.label_zh || v.name).join('、')}不能为空，填好再复制`);
+      try {
+        const r = await api(`/api/reply-templates/${t.id}/render`, {
+          method: 'POST', body: JSON.stringify({ lang: state.lang, slots: state.slots }),
+        });
+        await navigator.clipboard.writeText(r.text);
+        api(`/api/reply-templates/${t.id}/use`, { method: 'POST' }).catch(() => {});
+        toast(r.fallback ? `已复制（暂无${TPL_LANG[state.lang]}版，用${r.lang_used}版发出）` : '已复制，去阿里消息中心粘贴');
+      } catch (e) { toast(e.message); }
+    };
+    $('#u-edit').onclick = () => location.hash = '#/tpl/' + t.id + '/edit';
+    $('#u-del').onclick = async () => {
+      if (!confirm(`确定删除模板「${loc.title}」（${avail.join('/')} ${avail.length} 个语言版本）？`)) return;
+      try { await api('/api/reply-templates/' + t.id, { method: 'DELETE' }); toast('已删除'); location.hash = '#/tpl'; }
+      catch (e) { toast(e.message); }
+    };
   };
-  const refresh = () => {
-    const s = cur();
-    $('#d-prev').textContent = clientRender(t.body, s);
-    const miss = [];
-    if (needsPrice && !s.price) miss.push('价格');
-    if (needsLead && !s.lead_time) miss.push('交期');
-    const btn = $('#d-copy');
-    btn.classList.toggle('dim', miss.length > 0);
-    btn.dataset.miss = miss.join('、');
-  };
-  app.querySelectorAll('[data-slot]').forEach(i => i.oninput = refresh);
-  refresh();
-  $('#d-copy').onclick = async () => {
-    const miss = $('#d-copy').dataset.miss;
-    if (miss) return toast(`${miss}不能为空，填好再复制`);
-    try {
-      const r = await api(`/api/reply-templates/${t.id}/render`, { method: 'POST', body: JSON.stringify({ slots: cur() }) });
-      await navigator.clipboard.writeText(r.text);
-      toast('已复制，去阿里消息中心粘贴');
-    } catch (e) { toast(e.message); }
-  };
-  $('#d-edit').onclick = () => location.hash = '#/tpl/' + t.id + '/edit';
-  $('#d-del').onclick = async () => {
-    if (!confirm(`确定删除「${t.title}」？${t.is_seed ? '（种子模板，可从"种子重建"恢复）' : ''}`)) return;
-    try { await api('/api/reply-templates/' + t.id, { method: 'DELETE' }); toast('已删除'); location.hash = '#/tpl'; }
-    catch (e) { toast(e.message); }
-  };
+  paint();
 }
 
+/* ---------- 编辑页：语言标签页 + 变量管理 + 片段插入 ---------- */
 async function viewTplForm(id) {
   const isEdit = !!id;
-  let t = { lang: 'EN', scene: 'first', title: '', body: '', note_zh: '', source_buyer: '' };
+  setNav('tpl');
+  let t = null;
   if (isEdit) {
     try { t = await api('/api/reply-templates/' + id); }
     catch (e) { app.innerHTML = `${topbar('出错', '#/tpl')}<div class="page"><div class="empty">${esc(e.message)}</div></div>`; return; }
   }
-  app.innerHTML = `${topbar(isEdit ? '编辑模板' : '新增模板', isEdit ? '#/tpl/' + id : '#/tpl')}
-  <div class="page"><div class="card">
-    <div class="frow">
-      <div class="grow"><label class="fl" style="margin-top:0">语言</label>
-        <select id="f-lang">${Object.entries(TPL_LANG).map(([k, v]) => `<option value="${k}" ${t.lang === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-      <div class="grow"><label class="fl" style="margin-top:0">场景</label>
-        <select id="f-scene">${Object.entries(TPL_SCENE).map(([k, v]) => `<option value="${k}" ${t.scene === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-    </div>
-    <label class="fl">标题</label><input id="f-title" value="${esc(t.title)}" placeholder="如：英文-首回：问款式颜色尺码">
-    <label class="fl">正文（可用填空位：{{buyer_name}} {{product}} {{price}} {{lead_time}} {{quantity}} {{country}} {{size}} {{color}}）</label>
-    <textarea id="f-body" style="min-height:200px">${esc(t.body)}</textarea>
-    <label class="fl">使用说明（什么时候用）</label><input id="f-note" value="${esc(t.note_zh)}" placeholder="一句话中文说明">
-    <label class="fl">来源买家（可选）</label><input id="f-src" value="${esc(t.source_buyer)}" placeholder="如 marlen-kell-rosario">
-  </div>
-  <button class="btn" id="f-save">${isEdit ? '保存修改' : '创建模板'}</button></div>`;
-  $('#f-save').onclick = async () => {
-    const body = { lang: $('#f-lang').value, scene: $('#f-scene').value, title: $('#f-title').value.trim(),
-      body: $('#f-body').value, note_zh: $('#f-note').value.trim(), source_buyer: $('#f-src').value.trim() };
-    if (!body.title) return toast('标题必填');
-    if (!body.body.trim()) return toast('正文必填');
-    try {
-      if (isEdit) { await api('/api/reply-templates/' + id, { method: 'PUT', body: JSON.stringify(body) }); toast('已保存'); location.hash = '#/tpl/' + id; }
-      else { const r = await api('/api/reply-templates', { method: 'POST', body: JSON.stringify(body) }); toast('已创建'); location.hash = '#/tpl/' + r.id; }
-    } catch (e) { toast(e.message); }
+  const state = {
+    scene: t ? t.scene : 'first',
+    category: t ? t.category : '通用',
+    note_zh: t ? t.note_zh : '',
+    source_buyer: t ? t.source_buyer : '',
+    locales: t ? t.locales.map((l) => ({ ...l })) : [{ lang: 'EN', title: '', body: '' }],
+    vars: t ? t.vars.map((v) => ({ ...v })) : [],
+    activeLang: t ? (t.locales[0] || {}).lang || 'EN' : 'EN',
   };
+  const scanVars = () => {
+    const found = [];
+    state.locales.forEach((l) => {
+      const re = /\{\{\s*([a-z_]+)\s*\}\}/g; let m;
+      while ((m = re.exec(l.body))) if (!found.includes(m[1])) found.push(m[1]);
+    });
+    found.forEach((name) => {
+      if (!state.vars.some((v) => v.name === name)) {
+        state.vars.push({ name, type: name === 'price' || name === 'quantity' ? 'number' : 'text',
+          required: name === 'price' || name === 'lead_time' ? 1 : 0, label_zh: name, sample: '' });
+      }
+    });
+    state.vars = state.vars.filter((v) => found.includes(v.name));
+  };
+
+  const paint = () => {
+    const loc = state.locales.find((l) => l.lang === state.activeLang) || state.locales[0];
+    const langs = Object.keys(TPL_LANG);
+    app.innerHTML = `${topbar(isEdit ? '编辑模板' : '新增模板', isEdit ? '#/tpl/' + id : '#/tpl')}
+    <div class="page"><div class="card">
+      <div class="frow">
+        <div class="grow"><label class="fl" style="margin-top:0">场景</label>
+          <select id="f-scene">${Object.entries(TPL_SCENE).map(([k, v]) =>
+            `<option value="${k}" ${state.scene === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+        <div class="grow"><label class="fl" style="margin-top:0">分类</label>
+          <input id="f-cat" value="${esc(state.category)}" placeholder="如：通用/西装/晚礼服"></div>
+      </div>
+      <label class="fl">语言版本</label>
+      <div class="seg" id="f-tabs">${langs.map((l) => {
+        const has = state.locales.some((x) => x.lang === l);
+        return `<button class="chip ${l === state.activeLang ? 'on' : ''} ${has ? '' : 'dash'}" data-lang="${l}">${has ? l : '+ ' + l}</button>`;
+      }).join('')}</div>
+      <label class="fl">标题（${loc.lang}）</label>
+      <input id="f-title" value="${esc(loc.title)}" placeholder="如：追问：发货前确认">
+      <label class="fl">正文（${loc.lang}）</label>
+      <div class="seg" style="margin-top:0" id="f-insert">
+        <button class="chip" data-ins="{{snippet:signature}}">+ 落款片段</button>
+        ${state.vars.map((v) => `<button class="chip" data-ins="{{${esc(v.name)}}}">+ ${esc(v.name)}</button>`).join('')}
+      </div>
+      <textarea id="f-body" style="min-height:180px" placeholder="正文，填空位用 {{变量名}}，落款用 {{snippet:signature}}">${esc(loc.body)}</textarea>
+      <div class="btnrow mt8">
+        <button class="btn ghost" id="f-scan">从正文扫描变量</button>
+        ${state.locales.length > 1 ? `<button class="btn danger" id="f-dellang">删${loc.lang}版本</button>` : ''}
+      </div>
+      <label class="fl">变量管理（${state.vars.length} 个）</label>
+      <div id="f-vars">${state.vars.map((v, i) => `
+        <div class="varrow">
+          <div class="rowline"><code style="font-weight:700">{{${esc(v.name)}}}</code>
+            <label style="font-size:12px;display:flex;align-items:center;gap:4px">
+              <input type="checkbox" data-vi="${i}" data-k="required" ${v.required ? 'checked' : ''} style="width:auto"> 必填</label>
+            <button class="chip" data-vdel="${i}">删除</button></div>
+          <div class="frow mt4">
+            <div class="grow"><input data-vi="${i}" data-k="label_zh" value="${esc(v.label_zh)}" placeholder="中文名"></div>
+            <div class="grow"><select data-vi="${i}" data-k="type">${VAR_TYPES.map((tp) =>
+              `<option value="${tp}" ${v.type === tp ? 'selected' : ''}>${VAR_TYPE_ZH[tp]}</option>`).join('')}</select></div>
+          </div>
+          <input class="mt4" data-vi="${i}" data-k="sample" value="${esc(v.sample)}" placeholder="示例值（输入框提示用），如 175">
+        </div>`).join('') || '<div class="muted">暂无变量，点"从正文扫描变量"</div>'}
+      </div>
+      <label class="fl">使用说明（什么时候用）</label>
+      <input id="f-note" value="${esc(state.note_zh)}" placeholder="一句话中文说明">
+      <label class="fl">来源（可选）</label>
+      <input id="f-src" value="${esc(state.source_buyer)}" placeholder="如 marlen-kell-rosario">
+    </div>
+    <button class="btn" id="f-save">${isEdit ? '保存修改' : '创建模板'}</button>
+    ${isEdit ? '<div style="height:8px"></div><button class="btn danger" id="f-del">删除整个模板</button>' : ''}</div>`;
+
+    const syncLoc = () => {
+      const l = state.locales.find((x) => x.lang === state.activeLang);
+      if (l) { l.title = $('#f-title').value.trim(); l.body = $('#f-body').value; }
+    };
+    app.querySelectorAll('#f-tabs .chip').forEach((b) => {
+      b.onclick = () => {
+        syncLoc();
+        const l = b.dataset.lang;
+        if (!state.locales.some((x) => x.lang === l)) {
+          const en = state.locales.find((x) => x.lang === 'EN');
+          state.locales.push({ lang: l, title: '', body: en ? en.body : '' });
+        }
+        state.activeLang = l;
+        paint();
+      };
+    });
+    app.querySelectorAll('#f-insert .chip').forEach((b) => {
+      b.onclick = () => {
+        const ta = $('#f-body');
+        const s = ta.selectionStart || 0, e = ta.selectionEnd || 0;
+        ta.value = ta.value.slice(0, s) + b.dataset.ins + ta.value.slice(e);
+        ta.focus();
+      };
+    });
+    $('#f-scan').onclick = () => { syncLoc(); scanVars(); paint(); toast(`已扫描出 ${state.vars.length} 个变量`); };
+    const delLang = $('#f-dellang');
+    if (delLang) delLang.onclick = () => {
+      if (!confirm(`删除 ${state.activeLang} 语言版本？`)) return;
+      state.locales = state.locales.filter((x) => x.lang !== state.activeLang);
+      state.activeLang = state.locales[0].lang;
+      paint();
+    };
+    app.querySelectorAll('[data-vi]').forEach((el) => {
+      el.oninput = el.onchange = () => {
+        const v = state.vars[+el.dataset.vi];
+        if (!v) return;
+        v[el.dataset.k] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
+      };
+    });
+    app.querySelectorAll('[data-vdel]').forEach((b) => {
+      b.onclick = () => { state.vars.splice(+b.dataset.vdel, 1); syncLoc(); paint(); };
+    });
+    ['f-scene', 'f-cat', 'f-note', 'f-src'].forEach((fid) => {
+      $('#' + fid).oninput = (e) => {
+        if (fid === 'f-scene') state.scene = e.target.value;
+        else if (fid === 'f-cat') state.category = e.target.value;
+        else if (fid === 'f-note') state.note_zh = e.target.value;
+        else state.source_buyer = e.target.value;
+      };
+    });
+    $('#f-save').onclick = async () => {
+      syncLoc();
+      const locales = state.locales.filter((l) => l.body.trim());
+      if (!locales.length) return toast('至少保留一个有正文的语言版本');
+      if (locales.some((l) => !l.title.trim())) return toast('每个语言版本都要填标题');
+      const body = { scene: state.scene, category: state.category.trim() || '通用',
+        note_zh: state.note_zh.trim(), source_buyer: state.source_buyer.trim(), locales, vars: state.vars };
+      try {
+        if (isEdit) { await api('/api/reply-templates/' + id, { method: 'PUT', body: JSON.stringify(body) }); toast('已保存'); }
+        else { const r = await api('/api/reply-templates', { method: 'POST', body: JSON.stringify(body) }); id = r.id; toast('已创建'); }
+        location.hash = '#/tpl/' + id;
+      } catch (e) { toast(e.message); }
+    };
+    const delBtn = $('#f-del');
+    if (delBtn) delBtn.onclick = async () => {
+      if (!confirm('确定删除整个模板（含全部语言版本）？')) return;
+      try { await api('/api/reply-templates/' + id, { method: 'DELETE' }); toast('已删除'); location.hash = '#/tpl'; }
+      catch (e) { toast(e.message); }
+    };
+  };
+  if (!isEdit) scanVars();
+  paint();
 }
 
 /* ---------------- 占位 ---------------- */
