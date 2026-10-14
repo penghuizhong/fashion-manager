@@ -28,7 +28,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.6.0',
+  version: '0.7.0',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -359,7 +359,11 @@ app.post('/api/reply-templates', (req, res) => {
   const b = req.body || {};
   if (!SCENES.includes(b.scene)) return res.status(400).json({ error: '场景必须是 first/ask/quote/nudge' });
   const locales = b.locales || [];
-  if (!locales.length) return res.status(400).json({ error: '至少需要一个语言版本' });
+  if (!locales.length) {
+    // 中文流：只传中文话术时自动生成占位语言版本（库表仍要求至少一个 locale，外语数据不再编辑）
+    if (!b.gloss_zh || !String(b.gloss_zh).trim()) return res.status(400).json({ error: '中文话术必填' });
+    locales.push({ lang: 'EN', title: String(b.note_zh || b.key || '模板').trim() || '模板', body: b.gloss_zh });
+  }
   for (const l of locales) {
     if (!LANGS.includes(l.lang)) return res.status(400).json({ error: '语言必须是 EN/ES/PT/FR/DE/AR' });
     if (!l.title || !String(l.title).trim()) return res.status(400).json({ error: `标题必填（${l.lang}）` });
