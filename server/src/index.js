@@ -9,6 +9,8 @@ const LANGS = ['EN', 'ES', 'PT', 'FR', 'DE', 'AR'];
 const SCENES = ['first', 'ask', 'quote', 'nudge'];
 
 seedV3();
+// 中文落款片段：阿里内置翻译流用（粘中文，平台自动翻译）；老库启动时补齐（seedV3 只在空库跑）
+db.prepare(`INSERT OR IGNORE INTO snippets (key,lang,title_zh,body) VALUES ('signature','ZH','落款-中文','祝好，\nYingzi')`).run();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -26,7 +28,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.5.1',
+  version: '0.6.0',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -439,18 +441,27 @@ app.post('/api/reply-templates/reseed', (req, res) => {
 app.post('/api/reply-templates/:id/render', (req, res) => {
   const t = getTemplateFull(req.params.id);
   if (!t) return res.status(404).json({ error: '模板不存在' });
-  const lang = LANGS.includes(req.body && req.body.lang) ? req.body.lang : 'EN';
+  const rawLang = req.body && req.body.lang;
   const slots = (req.body && req.body.slots) || {};
-  const { locale, fallback } = pickLocale(t, lang);
-  if (!locale) return res.status(400).json({ error: '该模板没有任何语言版本' });
+  // 中文渲染：用中文对照 gloss_zh（阿里内置翻译流：粘中文，平台自动翻译）
+  let body, langUsed, fallback;
+  if (rawLang === 'ZH') {
+    if (!t.gloss_zh) return res.status(400).json({ error: '该模板没有中文对照，请到编辑页补充' });
+    body = t.gloss_zh; langUsed = 'ZH'; fallback = false;
+  } else {
+    const lang = LANGS.includes(rawLang) ? rawLang : 'EN';
+    const picked = pickLocale(t, lang);
+    if (!picked.locale) return res.status(400).json({ error: '该模板没有任何语言版本' });
+    body = picked.locale.body; langUsed = picked.locale.lang; fallback = picked.fallback;
+  }
   const missing = (t.vars || [])
     .filter((v) => v.required && !String(slots[v.name] || '').trim())
     .map((v) => v.label_zh || v.name);
   if (missing.length) {
     return res.status(400).json({ error: `红线：${missing.join('、')}不能为空，请填写后再复制发出`, missing });
   }
-  const text = renderBody(expandSnippets(locale.body, locale.lang), slots);
-  res.json({ ok: true, text, lang_used: locale.lang, fallback });
+  const text = renderBody(expandSnippets(body, langUsed), slots);
+  res.json({ ok: true, text, lang_used: langUsed, fallback });
 });
 
 // 使用统计：复制成功后调用

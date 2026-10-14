@@ -1,6 +1,6 @@
 /* 回复模板库种子数据 v3（结构化）
  * 由 v2 的 27 条硬编码全文提炼而来：
- * - SNIPPETS：6 条共享落款片段（key='signature' × 6 语种）
+ * - SNIPPETS：7 条共享落款片段（key='signature' × 7 语种，含中文）
  * - TEMPLATES：23 个逻辑模板（1 个跟进三段式 × 5 语言变体 + 22 个买家草稿提炼的通用模板）
  * 规则：
  * - 外语正文一字不改：只做"具体词→变量"替换 + 末尾落款→{{snippet:signature}}
@@ -15,6 +15,7 @@ export const SNIPPETS = [
   { key: 'signature', lang: 'FR', title_zh: '落款-法语', body: 'Cordialement,\nYingzi' },
   { key: 'signature', lang: 'DE', title_zh: '落款-德语', body: 'Mit freundlichen Grüßen,\nYingzi' },
   { key: 'signature', lang: 'AR', title_zh: '落款-阿语', body: 'مع تحياتي،\nYingzi' },
+  { key: 'signature', lang: 'ZH', title_zh: '落款-中文', body: '祝好，\nYingzi' },
 ];
 
 export const TEMPLATES = [
