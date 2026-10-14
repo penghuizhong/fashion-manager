@@ -4,10 +4,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import db, { now, DATA_DIR } from './db.js';
 import { nextStyleNo, canTransition, STATUS_LABEL, CATEGORIES, SEASONS } from './styleNo.js';
-import { seedReplyTemplates, SEED_TEMPLATES, LANGS, SCENES } from './seedTemplates.js';
+import { SNIPPETS, TEMPLATES } from './seedTemplatesV3.js';
+const LANGS = ['EN', 'ES', 'PT', 'FR', 'DE', 'AR'];
+const SCENES = ['first', 'ask', 'quote', 'nudge'];
 
-const seeded = seedReplyTemplates();
-if (seeded) console.log(`[garment-mgmt] seeded ${seeded} reply templates`);
+seedV3();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -25,7 +26,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.2.1',
+  version: '0.3.0',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -232,99 +233,240 @@ ${items || '· （无）'}
   res.json({ text });
 });
 
-// ---------- reply-templates（回复模板库 v0.2.0） ----------
-// 红线：价格/交期绝不能编造 —— render 时 {{price}} / {{lead_time}} 为空直接 400
-function renderTpl(body, slots = {}) {
+// ---------- reply-templates（回复模板库 v0.3.0：逻辑模板 × 语言变体 × 类型化变量 × 共享片段） ----------
+// 红线（通用规则）：required=1 的变量为空时 render 直接 400，不许复制发出
+// 价格/交期绝不能编造 —— 由变量 required 机制保证，不再是写死的特例
+
+function seedV3() {
+  const n = db.prepare('SELECT COUNT(*) c FROM templates WHERE origin=?').get('seed').c;
+  if (n > 0) return;
+  const t = now();
+  const insT = db.prepare(
+    `INSERT INTO templates (key,scene,category,status,version,note_zh,source_buyer,usage_count,origin,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  const insL = db.prepare('INSERT INTO template_locales (template_id,lang,title,body) VALUES (?,?,?,?)');
+  const insV = db.prepare(
+    'INSERT INTO template_vars (template_id,name,type,required,label_zh,sample,sort) VALUES (?,?,?,?,?,?,?)'
+  );
+  const insS = db.prepare(
+    'INSERT OR IGNORE INTO snippets (key,lang,title_zh,body) VALUES (?,?,?,?)'
+  );
+  db.transaction(() => {
+    for (const s of SNIPPETS) insS.run(s.key, s.lang, s.title_zh || '', s.body);
+    for (const tpl of TEMPLATES) {
+      const id = insT.run(
+        tpl.key, tpl.scene, tpl.category || '通用', 'published', 1,
+        tpl.note_zh || '', tpl.source_buyer || '', 0, 'seed', t, t
+      ).lastInsertRowid;
+      (tpl.locales || []).forEach((l) => insL.run(id, l.lang, l.title, l.body));
+      (tpl.vars || []).forEach((v, i) =>
+        insV.run(id, v.name, v.type || 'text', v.required ? 1 : 0, v.label_zh || v.name, v.sample || '', i));
+    }
+  })();
+  console.log(`[seed] v3 模板库：${TEMPLATES.length} 个逻辑模板 / ${SNIPPETS.length} 个共享片段`);
+}
+
+function expandSnippets(body, lang) {
+  return body.replace(/\{\{\s*snippet:([a-z_]+)\s*\}\}/g, (_, k) => {
+    const s = db.prepare('SELECT body FROM snippets WHERE key=? AND lang=?').get(k, lang)
+      || db.prepare('SELECT body FROM snippets WHERE key=? AND lang=?').get(k, 'EN');
+    return s ? s.body : '';
+  });
+}
+function renderBody(body, slots = {}) {
   return body.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, k) =>
     slots[k] !== undefined && slots[k] !== null ? String(slots[k]) : '');
 }
-function checkRequired(body, slots = {}) {
-  const missing = [];
-  if (body.includes('{{price}}') && !String(slots.price || '').trim()) missing.push('价格');
-  if (body.includes('{{lead_time}}') && !String(slots.lead_time || '').trim()) missing.push('交期');
-  return missing;
+function getTemplateFull(id) {
+  const t = db.prepare('SELECT * FROM templates WHERE id=?').get(id);
+  if (!t) return null;
+  t.locales = db.prepare('SELECT lang,title,body FROM template_locales WHERE template_id=? ORDER BY lang').all(id);
+  t.vars = db.prepare(
+    'SELECT name,type,required,label_zh,sample FROM template_vars WHERE template_id=? ORDER BY sort,id'
+  ).all(id);
+  return t;
 }
+function pickLocale(t, lang) {
+  const hit = (t.locales || []).find((l) => l.lang === lang);
+  if (hit) return { locale: hit, fallback: false };
+  const en = (t.locales || []).find((l) => l.lang === 'EN');
+  return { locale: en || t.locales[0], fallback: true };
+}
+const tplTitleOf = (t) => {
+  const en = (t.locales || []).find((l) => l.lang === 'EN');
+  return (en || t.locales[0] || {}).title || t.key;
+};
 
+// 列表：逻辑模板 + 可用语言 + 使用次数；q 跨全部语言变体搜索
 app.get('/api/reply-templates', (req, res) => {
-  const { lang = '', scene = '' } = req.query;
-  let sql = 'SELECT * FROM reply_templates WHERE 1=1';
+  const { q = '', scene = '' } = req.query;
   const args = [];
-  if (lang) { sql += ' AND lang=?'; args.push(lang); }
-  if (scene) { sql += ' AND scene=?'; args.push(scene); }
-  sql += ' ORDER BY lang, scene, id';
-  res.json(db.prepare(sql).all(...args));
+  let sql = 'SELECT t.* FROM templates t WHERE 1=1';
+  if (scene) { sql += ' AND t.scene=?'; args.push(scene); }
+  if (q) {
+    sql += ` AND (t.key LIKE ? OR t.note_zh LIKE ? OR t.category LIKE ?
+      OR EXISTS (SELECT 1 FROM template_locales l WHERE l.template_id=t.id AND (l.title LIKE ? OR l.body LIKE ?)))`;
+    const like = `%${q}%`;
+    args.push(like, like, like, like, like);
+  }
+  sql += ' ORDER BY t.usage_count DESC, t.id';
+  const rows = db.prepare(sql).all(...args);
+  const locStmt = db.prepare('SELECT lang,title FROM template_locales WHERE template_id=? ORDER BY lang');
+  res.json(rows.map((t) => {
+    const locales = locStmt.all(t.id);
+    const en = locales.find((l) => l.lang === 'EN');
+    return {
+      id: t.id, key: t.key, scene: t.scene, category: t.category,
+      note_zh: t.note_zh, usage_count: t.usage_count, origin: t.origin,
+      langs: locales.map((l) => l.lang),
+      title: (en || locales[0] || {}).title || t.key,
+    };
+  }));
 });
 
 app.get('/api/reply-templates/:id', (req, res) => {
-  const t = db.prepare('SELECT * FROM reply_templates WHERE id=?').get(req.params.id);
+  const t = getTemplateFull(req.params.id);
   if (!t) return res.status(404).json({ error: '模板不存在' });
   res.json(t);
 });
 
 app.post('/api/reply-templates', (req, res) => {
-  const { lang, scene, title, body, note_zh = '', source_buyer = '' } = req.body || {};
-  if (!LANGS.includes(lang)) return res.status(400).json({ error: '语言必须是 EN/ES/PT/FR/DE/AR' });
-  if (!SCENES.includes(scene)) return res.status(400).json({ error: '场景必须是 first/ask/quote/nudge' });
-  if (!title || !String(title).trim()) return res.status(400).json({ error: '标题必填' });
-  if (!body || !String(body).trim()) return res.status(400).json({ error: '正文必填' });
+  const b = req.body || {};
+  if (!SCENES.includes(b.scene)) return res.status(400).json({ error: '场景必须是 first/ask/quote/nudge' });
+  const locales = b.locales || [];
+  if (!locales.length) return res.status(400).json({ error: '至少需要一个语言版本' });
+  for (const l of locales) {
+    if (!LANGS.includes(l.lang)) return res.status(400).json({ error: '语言必须是 EN/ES/PT/FR/DE/AR' });
+    if (!l.title || !String(l.title).trim()) return res.status(400).json({ error: `标题必填（${l.lang}）` });
+    if (!l.body || !String(l.body).trim()) return res.status(400).json({ error: `正文必填（${l.lang}）` });
+  }
   const t = now();
-  const r = db.prepare(
-    `INSERT INTO reply_templates (lang,scene,title,body,note_zh,source_buyer,is_seed,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,0,?,?)`
-  ).run(lang, scene, String(title).trim(), body, String(note_zh).slice(0, 500),
-    String(source_buyer).slice(0, 100), t, t);
-  res.json({ ok: true, id: r.lastInsertRowid });
+  const key = String(b.key || '').trim() || `custom-${Date.now()}`;
+  const id = db.transaction(() => {
+    const tid = db.prepare(
+      `INSERT INTO templates (key,scene,category,status,version,note_zh,source_buyer,usage_count,origin,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+    ).run(key, b.scene, b.category || '通用', 'published', 1,
+      String(b.note_zh || '').slice(0, 500), String(b.source_buyer || '').slice(0, 100), 0, 'custom', t, t).lastInsertRowid;
+    const insL = db.prepare('INSERT INTO template_locales (template_id,lang,title,body) VALUES (?,?,?,?)');
+    const insV = db.prepare(
+      'INSERT INTO template_vars (template_id,name,type,required,label_zh,sample,sort) VALUES (?,?,?,?,?,?,?)'
+    );
+    locales.forEach((l) => insL.run(tid, l.lang, String(l.title).trim(), l.body));
+    (b.vars || []).forEach((v, i) => {
+      if (!v.name) return;
+      insV.run(tid, v.name, ['text', 'number', 'date', 'enum'].includes(v.type) ? v.type : 'text',
+        v.required ? 1 : 0, String(v.label_zh || v.name).slice(0, 20), String(v.sample || '').slice(0, 100), i);
+    });
+    return tid;
+  })();
+  res.json({ ok: true, id });
 });
 
 app.put('/api/reply-templates/:id', (req, res) => {
-  const t = db.prepare('SELECT * FROM reply_templates WHERE id=?').get(req.params.id);
+  const t = db.prepare('SELECT * FROM templates WHERE id=?').get(req.params.id);
   if (!t) return res.status(404).json({ error: '模板不存在' });
   const b = req.body || {};
-  if (b.lang && !LANGS.includes(b.lang)) return res.status(400).json({ error: '语言必须是 EN/ES/PT/FR/DE/AR' });
   if (b.scene && !SCENES.includes(b.scene)) return res.status(400).json({ error: '场景必须是 first/ask/quote/nudge' });
-  db.prepare(
-    `UPDATE reply_templates SET lang=?, scene=?, title=?, body=?, note_zh=?, source_buyer=?, updated_at=? WHERE id=?`
-  ).run(
-    b.lang || t.lang, b.scene || t.scene,
-    String(b.title ?? t.title).trim() || t.title, b.body ?? t.body,
-    String(b.note_zh ?? t.note_zh).slice(0, 500), String(b.source_buyer ?? t.source_buyer).slice(0, 100),
-    now(), t.id
-  );
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE templates SET scene=?, category=?, note_zh=?, source_buyer=?, version=version+1, updated_at=? WHERE id=?`
+    ).run(b.scene || t.scene, b.category || t.category,
+      String(b.note_zh ?? t.note_zh).slice(0, 500), String(b.source_buyer ?? t.source_buyer).slice(0, 100), now(), t.id);
+    if (b.locales) {
+      db.prepare('DELETE FROM template_locales WHERE template_id=?').run(t.id);
+      const insL = db.prepare('INSERT INTO template_locales (template_id,lang,title,body) VALUES (?,?,?,?)');
+      b.locales.forEach((l) => { if (LANGS.includes(l.lang)) insL.run(t.id, l.lang, String(l.title).trim(), l.body); });
+    }
+    if (b.vars) {
+      db.prepare('DELETE FROM template_vars WHERE template_id=?').run(t.id);
+      const insV = db.prepare(
+        'INSERT INTO template_vars (template_id,name,type,required,label_zh,sample,sort) VALUES (?,?,?,?,?,?,?)'
+      );
+      b.vars.forEach((v, i) => {
+        if (!v.name) return;
+        insV.run(t.id, v.name, ['text', 'number', 'date', 'enum'].includes(v.type) ? v.type : 'text',
+          v.required ? 1 : 0, String(v.label_zh || v.name).slice(0, 20), String(v.sample || '').slice(0, 100), i);
+      });
+    }
+  })();
   res.json({ ok: true });
 });
 
 app.delete('/api/reply-templates/:id', (req, res) => {
-  const t = db.prepare('SELECT * FROM reply_templates WHERE id=?').get(req.params.id);
+  const t = db.prepare('SELECT * FROM templates WHERE id=?').get(req.params.id);
   if (!t) return res.status(404).json({ error: '模板不存在' });
-  db.prepare('DELETE FROM reply_templates WHERE id=?').run(t.id);
+  db.prepare('DELETE FROM templates WHERE id=?').run(t.id);
   res.json({ ok: true });
 });
 
-// 种子重建：先清掉所有种子模板，再按 seedTemplates.js 重新灌入（自定义模板不受影响）
+// 种子重建：清掉 origin='seed' 的模板与全部片段，按 seedTemplatesV3.js 重灌（自定义/legacy 不受影响）
 app.post('/api/reply-templates/reseed', (req, res) => {
-  const t = now();
   db.transaction(() => {
-    db.prepare('DELETE FROM reply_templates WHERE is_seed=1').run();
-    const ins = db.prepare(
-      `INSERT INTO reply_templates (lang,scene,title,body,note_zh,source_buyer,is_seed,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,1,?,?)`
-    );
-    for (const s of SEED_TEMPLATES) {
-      ins.run(s.lang, s.scene, s.title, s.body, s.note_zh || '', s.source_buyer || '', t, t);
-    }
+    db.prepare(`DELETE FROM templates WHERE origin='seed'`).run();
+    db.prepare('DELETE FROM snippets').run();
   })();
-  res.json({ ok: true, count: SEED_TEMPLATES.length });
+  seedV3();
+  res.json({ ok: true, count: TEMPLATES.length });
 });
 
+// 渲染：多语言回退 + 片段展开 + 必填校验（红线）
 app.post('/api/reply-templates/:id/render', (req, res) => {
-  const t = db.prepare('SELECT * FROM reply_templates WHERE id=?').get(req.params.id);
+  const t = getTemplateFull(req.params.id);
   if (!t) return res.status(404).json({ error: '模板不存在' });
+  const lang = LANGS.includes(req.body && req.body.lang) ? req.body.lang : 'EN';
   const slots = (req.body && req.body.slots) || {};
-  const missing = checkRequired(t.body, slots);
+  const { locale, fallback } = pickLocale(t, lang);
+  if (!locale) return res.status(400).json({ error: '该模板没有任何语言版本' });
+  const missing = (t.vars || [])
+    .filter((v) => v.required && !String(slots[v.name] || '').trim())
+    .map((v) => v.label_zh || v.name);
   if (missing.length) {
-    return res.status(400).json({ error: `红线：${missing.join('、')}不能为空，请填写后再复制发出` });
+    return res.status(400).json({ error: `红线：${missing.join('、')}不能为空，请填写后再复制发出`, missing });
   }
-  res.json({ ok: true, text: renderTpl(t.body, slots) });
+  const text = renderBody(expandSnippets(locale.body, locale.lang), slots);
+  res.json({ ok: true, text, lang_used: locale.lang, fallback });
+});
+
+// 使用统计：复制成功后调用
+app.post('/api/reply-templates/:id/use', (req, res) => {
+  const t = db.prepare('SELECT * FROM templates WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: '模板不存在' });
+  db.prepare('UPDATE templates SET usage_count=usage_count+1 WHERE id=?').run(t.id);
+  res.json({ ok: true, usage_count: t.usage_count + 1 });
+});
+
+// ---------- snippets（共享片段） ----------
+app.get('/api/snippets', (req, res) => {
+  res.json(db.prepare('SELECT * FROM snippets ORDER BY key, lang').all());
+});
+app.post('/api/snippets', (req, res) => {
+  const b = req.body || {};
+  if (!b.key || !String(b.key).trim()) return res.status(400).json({ error: 'key 必填' });
+  if (!LANGS.includes(b.lang)) return res.status(400).json({ error: '语言必须是 EN/ES/PT/FR/DE/AR' });
+  if (!b.body || !String(b.body).trim()) return res.status(400).json({ error: '正文必填' });
+  try {
+    const r = db.prepare('INSERT INTO snippets (key,lang,title_zh,body) VALUES (?,?,?,?)')
+      .run(String(b.key).trim(), b.lang, String(b.title_zh || '').slice(0, 50), b.body);
+    res.json({ ok: true, id: r.lastInsertRowid });
+  } catch {
+    return res.status(400).json({ error: '该 key+语言已存在' });
+  }
+});
+app.put('/api/snippets/:id', (req, res) => {
+  const s = db.prepare('SELECT * FROM snippets WHERE id=?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: '片段不存在' });
+  const b = req.body || {};
+  db.prepare('UPDATE snippets SET title_zh=?, body=? WHERE id=?')
+    .run(String(b.title_zh ?? s.title_zh).slice(0, 50), b.body ?? s.body, s.id);
+  res.json({ ok: true });
+});
+app.delete('/api/snippets/:id', (req, res) => {
+  const s = db.prepare('SELECT * FROM snippets WHERE id=?').get(req.params.id);
+  if (!s) return res.status(404).json({ error: '片段不存在' });
+  db.prepare('DELETE FROM snippets WHERE id=?').run(s.id);
+  res.json({ ok: true });
 });
 
 // ---------- static ----------

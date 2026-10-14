@@ -139,3 +139,19 @@ label.fl{display:block;font-size:12px;color:var(--muted);margin:10px 0 5px}
   color:var(--on-accent);padding:10px 18px;border-radius:20px;font-size:13px;z-index:99;
   opacity:0;transition:opacity .25s;pointer-events:none;max-width:90%}
 .toast.show{opacity:1}
+
+/* ---------- 模板台 v0.3.0 ---------- */
+.searchbar{margin-bottom:10px}
+.sechead{font-size:12px;font-weight:700;color:var(--muted);margin:14px 2px 6px;letter-spacing:.06em}
+.seg{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.seg .chip.dash{border-style:dashed;opacity:.55}
+.stickybar{position:sticky;bottom:0;background:var(--bg);padding:8px 0 calc(12px + env(safe-area-inset-bottom));z-index:5}
+.miss{color:var(--danger);font-size:12px;text-align:center;min-height:17px;margin-bottom:6px;font-weight:700}
+.lockbar{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);
+  background:var(--surface2);border-radius:8px;padding:8px 10px;margin-top:8px}
+.notice{font-size:12px;color:var(--accent);background:var(--surface2);border-radius:8px;
+  padding:8px 10px;margin-top:8px}
+.varrow{border:1px solid var(--border);border-radius:10px;padding:10px;margin-top:8px;background:var(--surface)}
+.varrow code{font-size:12px}
+details.card summary{cursor:pointer;list-style:none}
+details.card summary::-webkit-details-marker{display:none}
