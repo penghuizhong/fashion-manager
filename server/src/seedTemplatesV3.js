@@ -23,6 +23,13 @@ export const TEMPLATES = [
     scene: 'nudge',
     category: '通用',
     note_zh: '买家3天以上没回时用：点名+给一条图上看不到的定制信息+只问两个问题',
+    gloss_zh: `{{buyer_name}}您好，跟进一下——您看到我之前发的关于{{product}}的消息了吗？
+
+照片上看不出的一个细节：这款我们可以做其他颜色，还能按您的尺码调整。
+
+您看要不要我：1）给您发面料照片？2）给{{quantity}}件做个报价？
+
+{{snippet:signature}}`,
     source_buyer: 'seed-nudge',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Marlen' },
@@ -72,6 +79,20 @@ Souhaitez-vous que : 1) je vous envoie des photos des tissus ? 2) je vous prépa
     scene: 'first',
     category: '通用',
     note_zh: '买家发来自有设计图求报价时用：先问清身份、数量、预算、交期再谈能不能做，预算和数量是诚意试金石',
+    gloss_zh: `{{buyer_name}}您好，
+
+感谢您分享设计稿——很漂亮！是的，我们支持按您自己的款式全定制。
+
+为了给您报个准确的价格，能否请您告诉我：
+
+1. 这些设计是您自己品牌/精品店用的吗？
+2. 每个款想要几件——1件，还是更多？
+3. 您的单件目标预算是多少？
+4. 您希望什么时候交货？
+
+期待与您合作！
+
+{{snippet:signature}}`,
     source_buyer: 'joel-salamon',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Marlen' },
@@ -98,6 +119,22 @@ Looking forward to working with you!
     scene: 'ask',
     category: '通用',
     note_zh: '买家确认要做样品后用：款式、样品预算、交期、尺码一次问齐；"样品费可抵大货款"是留客钩子',
+    gloss_zh: `{{buyer_name}}您好，
+
+太好了——我们很乐意为您的品牌服务！
+
+关于样衣，能否请您确认：
+
+1. 想要哪个款——{{product}}？
+2. 样衣单件的目标预算是多少？
+3. 样衣什么时候要交货？
+4. 能否提供样衣的量体数据或尺码规格？
+
+我们的样衣交期一般是{{lead_time}}（看工艺复杂程度）。下大货时样衣费可以抵扣货款。
+
+等您确认！
+
+{{snippet:signature}}`,
     source_buyer: 'joel-salamon',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Marlen' },
@@ -128,6 +165,23 @@ Looking forward to your confirmation!
     scene: 'quote',
     category: '婚纱',
     note_zh: '多款样品一起报价时用：复制第1行改产品名和价格，各款价格不同、逐行填实价再发出；附"先做一件"+样品费抵扣话术',
+    gloss_zh: `{{buyer_name}}您好，
+
+谢谢！样衣报价如下：
+
+1. {{product}}：{{price}} / 件
+
+样衣交期每件{{lead_time}}（钉珠款因为是手工钉珠，时间会长一些）。
+
+凭我的经验给您两点建议：
+- 建议先做**1个款**的样衣，把版型和细节做到位，再做其他款。
+- 下大货时样衣费**全额抵扣**货款。
+
+价格是按接近照片的面料估的——如果您对面料有具体要求请告诉我。另外，能否提供量体数据和您的目标交货日期？
+
+等您的决定！
+
+{{snippet:signature}}`,
     source_buyer: 'joel-salamon',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Marlen' },
@@ -160,6 +214,17 @@ Looking forward to your decision!
     scene: 'ask',
     category: '订单跟进',
     note_zh: '客户下单后要求换面料/改方案时用：先说没问题再说代价（重订面料可能延长交期），请客户确认后执行；顺带补齐电话地址',
+    gloss_zh: `早上好！
+
+没问题——您的{{product}}可以换面料。
+
+跟您说明一下：之前按咱们谈好的，我已经把{{product}}的面料订了，现在换的话要重新订面料，交期可能会延长几天。
+
+请您确认一下是否确定要换，确认后我马上安排。
+
+另外，寄往{{country}}的快递，还缺您的电话号码和详细收货地址，麻烦发我一下。
+
+{{snippet:signature}}`,
     source_buyer: 'marlen-kell-rosario',
     vars: [
       { name: 'product', type: 'text', required: 0, label_zh: '产品', sample: 'suit' },
@@ -184,6 +249,17 @@ Also, I'm still waiting for your phone number and detailed shipping address for 
     scene: 'ask',
     category: '订单跟进',
     note_zh: '发货前最终确认用：收齐电话+详细地址，谈妥进口税由谁付；如需对账手动加一句金额确认',
+    gloss_zh: `好的，谢谢！
+
+已确认——{{product}}，我马上安排。
+
+另外麻烦您发一下电话号码和完整收货地址（街道、门牌号、城市、州、邮编）。
+
+发货前还有一件事要跟您确认：{{country}}的进口税（海关税+州税，派送时收取）——您那边方便到付自理吗？
+
+收到地址后我就马上开工生产。
+
+{{snippet:signature}}`,
     source_buyer: 'marlen-kell-rosario',
     vars: [
       { name: 'product', type: 'text', required: 0, label_zh: '产品', sample: 'suit' },
@@ -208,6 +284,19 @@ Once I have your address, production starts right away.
     scene: 'ask',
     category: '订单跟进',
     note_zh: '发往有清关税号要求的国家时用：索要税号+电话+地址，并提前告知进口税到付',
+    gloss_zh: `{{buyer_name}}您好，
+
+您的{{product}}已经在生产了。要快递寄到{{country}}，海关需要您的税号——麻烦您发我一下：
+
+1. 您的**税号**
+2. 您的**电话号码**
+3. 您的**完整收货地址**
+
+另外：{{country}}对入境包裹收进口税，由快递派送时代收。请您确认到付时方便支付。
+
+收到您的税号和地址后，我马上发货。
+
+{{snippet:signature}}`,
     source_buyer: 'marlen-kell-rosario',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Marlen' },
@@ -235,6 +324,22 @@ Once I have your tax ID and address, I'll ship it out right away.
     scene: 'quote',
     category: '西装',
     note_zh: '高端面料西装/燕尾服询盘用：先报起报价格占位，问清数量/颜色/尺码/交期；运费关税另计',
+    gloss_zh: `{{buyer_name}}您好，
+
+感谢您的询盘！是的，我们可以做{{product}}——缎面枪驳领/青果领、缎面包扣、裤侧缎条都能做。
+
+为了给您报个准确的价格，能否请您确认：
+
+1. 数量——1件？
+2. 颜色——经典黑，还是其他颜色？
+3. 您的量体数据（胸围、腰围、身高等）——需要的话我可以发您一份量体指南。
+4. 您什么时候要？
+
+我们定制的{{product}}单件{{price}}起。DHL快递到{{country}}的运费和进口关税另行确认。
+
+等您的详细信息！
+
+{{snippet:signature}}`,
     source_buyer: 'andrei-octavian-grigore',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Andrei' },
@@ -266,6 +371,16 @@ Looking forward to your details!
     scene: 'first',
     category: '通用',
     note_zh: '询盘没说要哪款时用：请买家发款名/截图/链接，并介绍定制服务',
+    gloss_zh: `您好，
+
+感谢您的询盘！为了给您报准确的价格和细节，能否请您告诉我您看中了哪款产品——比如款名，或者我们店铺的截图/链接？
+
+我们专做定制晚礼服和男士西装，支持OEM/ODM服务。如需样衣可以安排。
+
+期待您的回复。
+
+{{snippet:signature}}
+Guangzhou Yingzi Fashion Co., Ltd.`,
     source_buyer: 'andrei-octavian-grigore',
     vars: [],
     locales: [
@@ -286,6 +401,15 @@ Guangzhou Yingzi Fashion Co., Ltd.` },
     scene: 'ask',
     category: '西装',
     note_zh: '男士西装询盘用：颜色、尺码/量体数据、1件是样衣还是批量开头',
+    gloss_zh: `{{buyer_name}}您好，
+
+感谢您咨询{{product}}。
+
+能否请您确认：1. 想要什么颜色？2. 需要什么尺码（或您的量体数据——胸围、腰围、身高）？3. 这1件是做样衣，还是大货的开始？
+
+有了这些信息我就能给您准确报价了。
+
+{{snippet:signature}}`,
     source_buyer: 'sodari-ajay',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Ajay' },
@@ -308,6 +432,13 @@ Once I have these details I can quote you accurately.
     scene: 'ask',
     category: '西装',
     note_zh: '西语西装询盘用：款式（请发图）、尺码数量、交期',
+    gloss_zh: `{{buyer_name}}您好，
+
+感谢您的咨询。能否请您告诉我：1. 您看中了哪款西装（发张照片或链接会很有帮助）？2. 需要什么尺码、几件？3. 什么时候要？
+
+有了这些信息，我就能给您做一份准确的报价。
+
+{{snippet:signature}}`,
     source_buyer: 'jasmina-gonsalez',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Jasmina' },
@@ -327,6 +458,13 @@ Con estos datos le preparo una cotización precisa.
     scene: 'ask',
     category: '通用',
     note_zh: '买家只给了尺码没说款式时用：请确认款式（发图）+数量',
+    gloss_zh: `{{buyer_name}}您好，
+
+感谢您提供尺码（{{size}}）。能否请您告诉我：1. 您看中了哪款西装？（发张照片或链接会很有帮助）2. 想要几件？
+
+确认后我马上给您报价。
+
+{{snippet:signature}}`,
     source_buyer: 'furaha-mawamba',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Furaha' },
@@ -347,6 +485,21 @@ Once confirmed, I'll quote you right away.
     scene: 'quote',
     category: '西装',
     note_zh: '定制西装/燕尾服询盘用：要量体数据、翻领偏好、国家邮编核算运费；样衣价、制作期均为占位，须填实价',
+    gloss_zh: `{{buyer_name}}您好，
+
+感谢您的询盘和参考图！这款{{product}}我们可以做。
+
+为了给您报个准确的价格，能否请您提供：
+1. 您的量体数据：身高、胸围、腰围、臀围、肩宽、袖长、裤长（或您平时穿的西装尺码）
+2. 翻领偏好：枪驳领还是平驳领？
+3. 您的国家和邮编，我好核算运费
+
+参考一下，这款{{product}}的样衣价是{{price}}（待确认），制作期{{lead_time}}。我们专做男士西装定制，支持OEM/ODM服务。
+
+期待您的回复。
+
+{{snippet:signature}}
+Guangzhou Yingzi Fashion Co., Ltd.`,
     source_buyer: 'cael-joyce',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Cael' },
@@ -377,6 +530,9 @@ Guangzhou Yingzi Fashion Co., Ltd.` },
     scene: 'ask',
     category: '通用',
     note_zh: '询盘只说品类没指明款式时用：一句话请买家明确款式颜色尺码数量',
+    gloss_zh: `您好，感谢您的留言！能否请您明确一下是哪款夹克（款式、颜色、尺码、数量）？这样我才能给您准确答复。
+
+{{snippet:signature}}`,
     source_buyer: 'kubilay-ceribas',
     vars: [],
     locales: [
@@ -390,6 +546,12 @@ Guangzhou Yingzi Fashion Co., Ltd.` },
     scene: 'first',
     category: '通用',
     note_zh: '询盘只有问好没实质内容时用：产品、尺码、数量三问',
+    gloss_zh: `{{buyer_name}}您好，
+
+感谢您的联系！能否请您告诉我您看中了哪款产品、您的尺码和需要的数量？我稍后就给您报价。
+
+{{snippet:signature}}
+Guangzhou Yingzi Fashion Co., Ltd.`,
     source_buyer: 'cinare-osmanli',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Kelly' },
@@ -408,6 +570,21 @@ Guangzhou Yingzi Fashion Co., Ltd.` },
     scene: 'ask',
     category: '晚礼服',
     note_zh: '晚礼服询盘用：颜色、尺码、样衣还是试单；附工厂定制能力介绍',
+    gloss_zh: `您好，
+
+感谢您对我们的{{product}}感兴趣。
+
+为了给您做一份准确的报价，能否请您确认：
+1. 想要的颜色
+2. 需要的尺码（美码/欧码/英码）
+3. 这{{quantity}}件是做样衣还是试单？
+
+我们是专业的晚礼服工厂，支持OEM/ODM定制（颜色、面料、尺码、私人唛头）。
+
+期待您的回复。
+
+{{snippet:signature}}
+Guangzhou Yingzi Fashion Co., Ltd.`,
     source_buyer: 'alqhtany-alqhtany',
     vars: [
       { name: 'product', type: 'text', required: 0, label_zh: '产品', sample: 'mermaid evening gown' },
@@ -450,6 +627,21 @@ Guangzhou Yingzi Fashion Co., Ltd.` },
     scene: 'ask',
     category: '晚礼服',
     note_zh: '晚礼服询盘用：颜色、尺码、样衣还是试单；样衣交期占位须填实',
+    gloss_zh: `{{buyer_name}}您好，
+
+感谢您咨询我们的{{product}}。
+
+为了给您准确报价，能否请您确认：
+1. 金属缎面想要什么颜色
+2. 需要的尺码（美码/欧码/英码）
+3. 这{{quantity}}件是做样衣还是试单？
+
+我们是专业的晚礼服工厂，提供OEM/ODM定制（颜色、面料、尺码、私人唛头）。样衣交期一般{{lead_time}}（看工艺复杂程度）。
+
+如需面料色卡照片或更多细节，随时告诉我。
+
+{{snippet:signature}}
+Guangzhou Yingzi Fashion Co., Ltd.`,
     source_buyer: 'alexandra-crawford',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Alexandra' },
@@ -480,6 +672,20 @@ Guangzhou Yingzi Fashion Co., Ltd.` },
     scene: 'ask',
     category: '晚礼服',
     note_zh: '德语晚礼裙询盘用：颜色、尺码、大概数量；附定制服务介绍',
+    gloss_zh: `您好，
+
+感谢您咨询我们的{{product}}。
+
+我们很乐意给您报价。能否请您告诉我们：
+
+1. 想要什么颜色？
+2. 需要哪些尺码？
+3. 大概想订几件？
+
+我们提供量身定制（OEM/ODM）——颜色、尺码和细节都可以按您的要求调整。
+
+{{snippet:signature}}
+Guangzhou Yingzi Fashion Co., Ltd.`,
     source_buyer: 'suse-liebesuse',
     vars: [
       { name: 'product', type: 'text', required: 0, label_zh: '产品', sample: 'Abendkleid aus Spitze und Tüll' },
@@ -506,6 +712,15 @@ Guangzhou Yingzi Fashion Co., Ltd.` },
     scene: 'first',
     category: '晚礼服',
     note_zh: '买家问产品细节但无照片时用：把"可定制"变成卖点（如后背可敞开/拉链），顺手问数量和交期',
+    gloss_zh: `您好，感谢您的留言！
+
+这条裙子是量身定制的——后背可以做敞开式（挂脖系带，经典挂脖款）或隐形拉链闭合。您更喜欢哪种？
+
+我正在整理这款的更多照片，今天就发给您。
+
+为了给您报个准确的价格：您需要几件、什么时候要？
+
+{{snippet:signature}}`,
     source_buyer: 'mercedes-silvasantos',
     vars: [],
     locales: [
@@ -525,6 +740,13 @@ Para eu te passar o orçamento certinho: quantas peças você precisa e para qua
     scene: 'quote',
     category: '晚礼服',
     note_zh: '阿语客户问价时用：先报公开价格区间占位，让客户报数量和国家再给实价含运费',
+    gloss_zh: `您好！我是Yingzi，从现在起由我本人亲自跟您对接。
+
+{{product}}：价格是**{{price}}**美元/件，具体看数量。
+
+您想要几件？发往哪个国家？我马上给您报含运费的准确价格。
+
+{{snippet:signature}}`,
     source_buyer: 'ly-ly',
     vars: [
       { name: 'product', type: 'text', required: 0, label_zh: '产品', sample: 'فستان وردي' },
@@ -545,6 +767,15 @@ Para eu te passar o orçamento certinho: quantas peças você precisa e para qua
     scene: 'first',
     category: '通用',
     note_zh: '买家发产品图询盘时的标准开场：叫出名字→给一条图上看不到的信息→只问两个问题（颜色、数量+交期）；{{product}}填产品名+一句卖点',
+    gloss_zh: `{{buyer_name}}您好，感谢您对这条裙子感兴趣！
+
+这款{{product}}是我们最受欢迎的款式之一。我们还可以做其他颜色，并按您的需要调整长度。
+
+能否请您告诉我：1）想要什么颜色？2）需要几件、什么时候要？
+
+我马上给您核算准确的报价。
+
+{{snippet:signature}}`,
     source_buyer: 'rose-benjamin',
     vars: [
       { name: 'buyer_name', type: 'text', required: 0, label_zh: '买家名', sample: 'Rose' },
@@ -567,6 +798,17 @@ I'll work out an accurate quotation for you right away.
     scene: 'quote',
     category: '西装',
     note_zh: '法语西装/燕尾服询盘用：要尺码数量、国家邮编；样衣价、交期均为占位，发出前填实',
+    gloss_zh: `您好，
+
+感谢您的留言！这款{{product}}我们可以做。
+
+为了给您做一份准确的报价，能否请您明确：
+1. 您的尺码（或量体数据）和想要的数量
+2. 您的国家和邮编，我好核算运费
+
+参考一下，这款的样衣价是{{price}}，制作期{{lead_time}}——价格和交期待确认。
+
+{{snippet:signature}}`,
     source_buyer: 'jean-malanda',
     vars: [
       { name: 'product', type: 'text', required: 0, label_zh: '产品', sample: 'smoking noir à broderie dorée' },

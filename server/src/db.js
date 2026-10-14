@@ -166,5 +166,12 @@ if (hasOldTpl) {
   if (rows.length) console.log(`[migrate] reply_templates → 新结构，迁移自定义模板 ${rows.length} 条`);
 }
 
+// v0.3.1：templates 加中文对照列（老库升级用）
+const tplCols = db.prepare(`PRAGMA table_info(templates)`).all().map((c) => c.name);
+if (!tplCols.includes('gloss_zh')) {
+  db.exec(`ALTER TABLE templates ADD COLUMN gloss_zh TEXT NOT NULL DEFAULT ''`);
+  console.log('[migrate] templates + gloss_zh 列');
+}
+
 export default db;
 export const now = () => new Date().toISOString();

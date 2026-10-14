@@ -26,7 +26,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.3.0',
+  version: '0.3.1',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -239,32 +239,47 @@ ${items || '· （无）'}
 
 function seedV3() {
   const n = db.prepare('SELECT COUNT(*) c FROM templates WHERE origin=?').get('seed').c;
-  if (n > 0) return;
-  const t = now();
-  const insT = db.prepare(
-    `INSERT INTO templates (key,scene,category,status,version,note_zh,source_buyer,usage_count,origin,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-  );
-  const insL = db.prepare('INSERT INTO template_locales (template_id,lang,title,body) VALUES (?,?,?,?)');
-  const insV = db.prepare(
-    'INSERT INTO template_vars (template_id,name,type,required,label_zh,sample,sort) VALUES (?,?,?,?,?,?,?)'
-  );
-  const insS = db.prepare(
-    'INSERT OR IGNORE INTO snippets (key,lang,title_zh,body) VALUES (?,?,?,?)'
-  );
-  db.transaction(() => {
-    for (const s of SNIPPETS) insS.run(s.key, s.lang, s.title_zh || '', s.body);
-    for (const tpl of TEMPLATES) {
-      const id = insT.run(
-        tpl.key, tpl.scene, tpl.category || '通用', 'published', 1,
-        tpl.note_zh || '', tpl.source_buyer || '', 0, 'seed', t, t
-      ).lastInsertRowid;
-      (tpl.locales || []).forEach((l) => insL.run(id, l.lang, l.title, l.body));
-      (tpl.vars || []).forEach((v, i) =>
-        insV.run(id, v.name, v.type || 'text', v.required ? 1 : 0, v.label_zh || v.name, v.sample || '', i));
-    }
-  })();
-  console.log(`[seed] v3 模板库：${TEMPLATES.length} 个逻辑模板 / ${SNIPPETS.length} 个共享片段`);
+  if (n === 0) {
+    const t = now();
+    const insT = db.prepare(
+      `INSERT INTO templates (key,scene,category,status,version,note_zh,gloss_zh,source_buyer,usage_count,origin,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+    );
+    const insL = db.prepare('INSERT INTO template_locales (template_id,lang,title,body) VALUES (?,?,?,?)');
+    const insV = db.prepare(
+      'INSERT INTO template_vars (template_id,name,type,required,label_zh,sample,sort) VALUES (?,?,?,?,?,?,?)'
+    );
+    const insS = db.prepare(
+      'INSERT OR IGNORE INTO snippets (key,lang,title_zh,body) VALUES (?,?,?,?)'
+    );
+    db.transaction(() => {
+      for (const s of SNIPPETS) insS.run(s.key, s.lang, s.title_zh || '', s.body);
+      for (const tpl of TEMPLATES) {
+        const id = insT.run(
+          tpl.key, tpl.scene, tpl.category || '通用', 'published', 1,
+          tpl.note_zh || '', tpl.gloss_zh || '', tpl.source_buyer || '', 0, 'seed', t, t
+        ).lastInsertRowid;
+        (tpl.locales || []).forEach((l) => insL.run(id, l.lang, l.title, l.body));
+        (tpl.vars || []).forEach((v, i) =>
+          insV.run(id, v.name, v.type || 'text', v.required ? 1 : 0, v.label_zh || v.name, v.sample || '', i));
+      }
+    })();
+    console.log(`[seed] v3 模板库：${TEMPLATES.length} 个逻辑模板 / ${SNIPPETS.length} 个共享片段`);
+    return;
+  }
+  // 已有种子：回填新增字段（如 gloss_zh），不重灌
+  const rows = db.prepare(`SELECT id, key FROM templates WHERE origin='seed' AND (gloss_zh IS NULL OR gloss_zh='')`).all();
+  if (rows.length) {
+    const upd = db.prepare(`UPDATE templates SET gloss_zh=? WHERE id=?`);
+    let c = 0;
+    db.transaction(() => {
+      for (const r of rows) {
+        const tpl = TEMPLATES.find((x) => x.key === r.key);
+        if (tpl && tpl.gloss_zh) { upd.run(tpl.gloss_zh, r.id); c++; }
+      }
+    })();
+    if (c) console.log(`[seed] 回填 gloss_zh：${c} 个模板`);
+  }
 }
 
 function expandSnippets(body, lang) {
@@ -345,10 +360,11 @@ app.post('/api/reply-templates', (req, res) => {
   const key = String(b.key || '').trim() || `custom-${Date.now()}`;
   const id = db.transaction(() => {
     const tid = db.prepare(
-      `INSERT INTO templates (key,scene,category,status,version,note_zh,source_buyer,usage_count,origin,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO templates (key,scene,category,status,version,note_zh,gloss_zh,source_buyer,usage_count,origin,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
     ).run(key, b.scene, b.category || '通用', 'published', 1,
-      String(b.note_zh || '').slice(0, 500), String(b.source_buyer || '').slice(0, 100), 0, 'custom', t, t).lastInsertRowid;
+      String(b.note_zh || '').slice(0, 500), String(b.gloss_zh || '').slice(0, 4000),
+      String(b.source_buyer || '').slice(0, 100), 0, 'custom', t, t).lastInsertRowid;
     const insL = db.prepare('INSERT INTO template_locales (template_id,lang,title,body) VALUES (?,?,?,?)');
     const insV = db.prepare(
       'INSERT INTO template_vars (template_id,name,type,required,label_zh,sample,sort) VALUES (?,?,?,?,?,?,?)'
@@ -371,9 +387,10 @@ app.put('/api/reply-templates/:id', (req, res) => {
   if (b.scene && !SCENES.includes(b.scene)) return res.status(400).json({ error: '场景必须是 first/ask/quote/nudge' });
   db.transaction(() => {
     db.prepare(
-      `UPDATE templates SET scene=?, category=?, note_zh=?, source_buyer=?, version=version+1, updated_at=? WHERE id=?`
+      `UPDATE templates SET scene=?, category=?, note_zh=?, gloss_zh=?, source_buyer=?, version=version+1, updated_at=? WHERE id=?`
     ).run(b.scene || t.scene, b.category || t.category,
-      String(b.note_zh ?? t.note_zh).slice(0, 500), String(b.source_buyer ?? t.source_buyer).slice(0, 100), now(), t.id);
+      String(b.note_zh ?? t.note_zh).slice(0, 500), String(b.gloss_zh ?? t.gloss_zh ?? '').slice(0, 4000),
+      String(b.source_buyer ?? t.source_buyer).slice(0, 100), now(), t.id);
     if (b.locales) {
       db.prepare('DELETE FROM template_locales WHERE template_id=?').run(t.id);
       const insL = db.prepare('INSERT INTO template_locales (template_id,lang,title,body) VALUES (?,?,?,?)');
