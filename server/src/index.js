@@ -28,7 +28,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.7.0',
+  version: '0.8.0',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -506,6 +506,151 @@ app.delete('/api/snippets/:id', (req, res) => {
   if (!s) return res.status(404).json({ error: '片段不存在' });
   db.prepare('DELETE FROM snippets WHERE id=?').run(s.id);
   res.json({ ok: true });
+});
+
+// ---------- admin 配置 & AI 话术助手（v0.8.0） ----------
+const ADMIN_DEFAULTS = {
+  base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  chat_model: 'qwen-plus',
+  embedding_model: 'text-embedding-v4',
+  vision_model: 'qwen-vl-plus',
+  api_key: '',
+};
+function getAdminConfig(includeKey = false) {
+  const rows = db.prepare('SELECT key, value FROM app_config').all();
+  const m = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const cfg = {
+    base_url: m.base_url || ADMIN_DEFAULTS.base_url,
+    chat_model: m.chat_model || ADMIN_DEFAULTS.chat_model,
+    embedding_model: m.embedding_model || ADMIN_DEFAULTS.embedding_model,
+    vision_model: m.vision_model || ADMIN_DEFAULTS.vision_model,
+  };
+  if (includeKey) cfg.api_key = m.api_key || '';
+  return cfg;
+}
+function adminHasKey() {
+  const r = db.prepare("SELECT value FROM app_config WHERE key='api_key'").get();
+  return !!(r && String(r.value).trim());
+}
+
+// 管理配置：Key 永不返回明文，只返回是否已设置
+app.get('/api/admin/config', (req, res) => {
+  res.json({ ...getAdminConfig(false), has_key: adminHasKey() });
+});
+app.put('/api/admin/config', (req, res) => {
+  const b = req.body || {};
+  const up = db.prepare(
+    'INSERT INTO app_config (key, value, updated_at) VALUES (?,?,?) ' +
+    'ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
+  );
+  const t = now();
+  for (const k of ['base_url', 'chat_model', 'embedding_model', 'vision_model']) {
+    if (b[k] !== undefined) up.run(k, String(b[k]).slice(0, 500), t);
+  }
+  // api_key 为空时不覆盖旧值
+  if (b.api_key !== undefined && String(b.api_key).trim() !== '') {
+    up.run('api_key', String(b.api_key).trim(), t);
+  }
+  res.json({ ok: true, ...getAdminConfig(false), has_key: adminHasKey() });
+});
+
+// AI 检索：关键词 LIKE（gloss_zh/note_zh/key/category/语言变体）
+// 预留：标签过滤（0.3）与向量检索（0.4b）接入点
+function aiRetrieve(message) {
+  const runs = String(message).match(/[\p{L}\p{N}]{2,}/gu) || [];
+  const toks = new Set();
+  for (const r of runs) {
+    toks.add(r);
+    // 中文无分词：长词加 2-gram 兜底，提高 LIKE 召回
+    if (/[一-鿿]/.test(r) && r.length > 4) {
+      for (let i = 0; i + 2 <= r.length; i++) toks.add(r.slice(i, i + 2));
+    }
+  }
+  const tokens = [...toks].slice(0, 24);
+  if (!tokens.length) return [];
+  const conds = [], args = [];
+  for (const tk of tokens) {
+    const like = `%${tk}%`;
+    conds.push(`(t.key LIKE ? OR t.note_zh LIKE ? OR t.gloss_zh LIKE ? OR t.category LIKE ?
+      OR EXISTS (SELECT 1 FROM template_locales l WHERE l.template_id=t.id AND (l.title LIKE ? OR l.body LIKE ?)))`);
+    args.push(like, like, like, like, like, like);
+  }
+  const rows = db.prepare(
+    `SELECT DISTINCT t.* FROM templates t WHERE ${conds.join(' OR ')} ORDER BY t.usage_count DESC, t.id LIMIT 8`
+  ).all(...args);
+  return rows.map((t) => ({
+    id: t.id, key: t.key, scene: t.scene, note_zh: t.note_zh, gloss_zh: t.gloss_zh || '',
+    vars: db.prepare('SELECT name,type,required,label_zh FROM template_vars WHERE template_id=? ORDER BY sort,id').all(t.id),
+  }));
+}
+
+const aiNorm = (s) => String(s ?? '').replace(/\s+/g, '').toLowerCase();
+
+// 代码护栏：template_id 必须在候选里；slot 值必须是消息原文子串；price/lead_time 缺失 → 置空
+function aiGuardrails(tpl, llmSlots, message) {
+  const msgNorm = aiNorm(message);
+  const slots = {};
+  for (const v of tpl.vars || []) {
+    let val = (llmSlots && llmSlots[v.name] != null) ? String(llmSlots[v.name]).trim() : '';
+    if (val && !msgNorm.includes(aiNorm(val))) val = ''; // 不是原文子串 → 置空
+    slots[v.name] = val;
+  }
+  const missing = (tpl.vars || [])
+    .filter((v) => v.required && !String(slots[v.name] || '').trim())
+    .map((v) => v.label_zh || v.name);
+  return { slots, missing };
+}
+
+app.post('/api/ai/assist', async (req, res) => {
+  const cfg = getAdminConfig(true);
+  if (!cfg.api_key) return res.status(400).json({ error: '未配置模型服务' });
+  const message = String((req.body && req.body.message) || '').trim();
+  if (!message) return res.status(400).json({ error: '消息不能为空' });
+  if (message.length > 2000) return res.status(400).json({ error: '消息过长（最多 2000 字）' });
+
+  const candidates = aiRetrieve(message);
+  if (!candidates.length) return res.status(404).json({ error: '话术库中没有匹配的模板' });
+
+  const sys = '你是话术库助手。从候选模板中选最匹配的一条，输出 JSON {template_id, slots:{name:value}}。' +
+    'slot 值只能从用户消息原文提取；价格、交期若消息中没有必须留空，绝不编造。不输出其他文字。';
+  const userContent = '候选模板：\n' + candidates.map((c) =>
+    `- id:${c.id} key:${c.key} 场景句:${c.note_zh} 变量:${c.vars.map((v) => v.name).join(',') || '无'}`
+  ).join('\n') + `\n买家消息：${message}`;
+
+  let llm;
+  try {
+    const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
+      body: JSON.stringify({
+        model: cfg.chat_model,
+        response_format: { type: 'json_object' },
+        messages: [{ role: 'system', content: sys }, { role: 'user', content: userContent }],
+        temperature: 0.2,
+      }),
+      signal: AbortSignal.timeout(45000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((d.error && d.error.message) || d.message || `模型服务返回 ${r.status}`);
+    const text = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
+    llm = JSON.parse(text);
+  } catch (e) {
+    return res.status(500).json({ error: `AI 调用失败：${e.message || e}` });
+  }
+
+  const templateId = Number(llm && llm.template_id);
+  const tpl = candidates.find((c) => c.id === templateId);
+  if (!tpl) return res.status(500).json({ error: 'AI 返回了候选之外的模板，请重试' });
+
+  const { slots, missing } = aiGuardrails(tpl, llm.slots, message);
+  // 中文渲染：同 :id/render 的 ZH 逻辑（gloss_zh + 落款片段展开）
+  const full = getTemplateFull(tpl.id);
+  const filled_text = renderBody(expandSnippets(full.gloss_zh || '', 'ZH'), slots);
+  res.json({
+    ok: true, template_id: tpl.id, template_key: tpl.key, note_zh: tpl.note_zh,
+    filled_text, slots, missing,
+  });
 });
 
 // ---------- static ----------

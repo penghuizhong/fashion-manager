@@ -125,6 +125,11 @@ CREATE TABLE IF NOT EXISTS snippets (
 );
 CREATE INDEX IF NOT EXISTS idx_tpl_scene ON templates(scene);
 CREATE INDEX IF NOT EXISTS idx_tpl_key ON templates(key);
+CREATE TABLE IF NOT EXISTS app_config (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL
+);
 `);
 
 // v0.3.0 迁移：老 reply_templates（v0.2.x 平铺结构）→ 新结构
