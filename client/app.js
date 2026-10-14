@@ -46,7 +46,7 @@ function route() {
   if (parts[0] === 'q' && parts[1]) return viewQuote(parts[1]);
   if (parts[0] === 'tpl' && parts[1] === 'new') return viewTplForm();
   if (parts[0] === 'tpl' && parts[2] === 'edit') return viewTplForm(parts[1]);
-  if (parts[0] === 'tpl' && parts[1]) return viewTplUse(parts[1]);
+  if (parts[0] === 'tpl' && parts[1]) return viewTplList(parts[1]);
   if (parts[0] === 'tpl') return viewTplList();
   if (parts[0] === 'design') return viewStub('设计台', '二期：一键改款出图、设计灵感库、样衣参考尺寸。');
   if (parts[0] === 'pattern') return viewStub('制版台', '二期：制版工具、公式计算器、纸样库。');
@@ -393,173 +393,212 @@ const SCENE_ORDER = ['first', 'ask', 'quote', 'nudge'];
 const VAR_TYPES = ['text', 'number', 'date'];
 const VAR_TYPE_ZH = { text: '文本', number: '数字', date: '日期' };
 let tplQuery = '';
-const tplLastLang = () => localStorage.getItem('tpl_last_lang') || 'EN';
 
-/* ---------- 列表：搜索 + 常用 + 场景分组 ---------- */
-async function viewTplList() {
-  setNav('tpl');
-  app.innerHTML = `${topbar('回复模板库')}
-    <div class="page" style="padding-top:10px">
-      <input id="t-q" class="searchbar" placeholder="搜索：标题 / 正文 / 使用说明" value="${esc(tplQuery)}" autocomplete="off">
-      <button class="btn ghost" id="t-new">+ 新增模板</button>
-      <div id="t-list" class="mt8"><div class="empty">加载中…</div></div>
-    </div>`;
-  $('#t-new').onclick = () => location.hash = '#/tpl/new';
-  const rowHtml = (t) => `
-    <div class="card tappable" data-id="${t.id}">
-      <div class="rowline"><span class="grow" style="font-weight:700">${esc(t.title)}</span>
-        ${t.usage_count > 0 ? `<span class="muted" style="font-size:11px;flex-shrink:0">用过${t.usage_count}</span>` : ''}</div>
-      ${t.note_zh ? `<div class="muted mt4" style="font-size:12px">${esc(t.note_zh)}</div>` : ''}
-      <div class="muted mt4" style="font-size:11px">${t.langs.join(' · ')}</div>
-    </div>`;
-  const draw = (list) => {
-    const el = $('#t-list');
-    if (!list.length) { el.innerHTML = `<div class="empty">没有符合的模板，换个关键词或新增一条</div>`; return; }
-    let h = '';
-    if (!tplQuery.trim()) {
-      const fav = list.filter((t) => t.usage_count > 0).slice(0, 5);
-      if (fav.length) h += `<div class="sechead">常用</div>` + fav.map(rowHtml).join('');
-    }
-    for (const sc of SCENE_ORDER) {
-      const g = list.filter((t) => t.scene === sc);
-      if (g.length) h += `<div class="sechead">${TPL_SCENE[sc]}</div>` + g.map(rowHtml).join('');
-    }
-    const rest = list.filter((t) => !SCENE_ORDER.includes(t.scene));
-    if (rest.length) h += `<div class="sechead">其他</div>` + rest.map(rowHtml).join('');
-    el.innerHTML = h;
-    el.querySelectorAll('.card').forEach((c) => c.onclick = () => location.hash = '#/tpl/' + c.dataset.id);
-  };
-  let timer = null;
-  const load = async () => {
-    try { draw(await api('/api/reply-templates' + (tplQuery.trim() ? '?q=' + encodeURIComponent(tplQuery.trim()) : ''))); }
-    catch (e) { $('#t-list').innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
-  };
-  $('#t-q').oninput = (e) => {
-    tplQuery = e.target.value;
-    clearTimeout(timer);
-    timer = setTimeout(load, 350);
-  };
-  load();
+/* ---------- 列表：QA 模式（Q 场景句 + A 中文首句预览），点卡开弹窗 ---------- */
+let tplCurrentIds = [];
+let tplModalKeyHandler = null;
+const tplLangKey = (id) => 'tpl_lang_' + id;
+const tplLastLangFor = (id, avail) => {
+const last = localStorage.getItem(tplLangKey(id));
+if (last && avail.includes(last)) return last;
+return avail.includes('EN')? 'EN': avail[0];
+};
+const clearModalKey = () => {
+if (tplModalKeyHandler) { document.removeEventListener('keydown', tplModalKeyHandler); tplModalKeyHandler = null;}
+};
+// A 预览：中文对照首句，变量替换为
+const aPreview = (t) => {
+const first = (t.gloss_zh || '').split('\n').find((l) => l.trim()) || '';
+if (!first) return '';
+const varMap = {};
+(t.vars || []).forEach((v) => { varMap[v.name] = '';});
+return first.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, k) => varMap[k] || '');
+};
+
+async function viewTplList(openId) {
+setNav('tpl');
+clearModalKey();
+app.innerHTML = `${topbar('回复模板库')}
+<div class="page" style="padding-top:10px">
+<input id="t-q" class="searchbar" placeholder="搜索：标题 / 正文 / 使用说明" value="${esc(tplQuery)}" autocomplete="off">
+<button class="btn ghost" id="t-new">+ 新增模板</button>
+<div id="t-list" class="mt8"><div class="empty">加载中…</div></div>
+</div>
+<div id="tpl-modal-root"></div>`;
+$('#t-new').onclick = () => location.hash = '#/tpl/new';
+const rowHtml = (t) => {
+tplCurrentIds.push(t.id);
+const q = t.note_zh || t.title;
+const a = aPreview(t);
+return `
+<div class="card tappable qa-card" data-id="${t.id}">
+<div class="qa-line"><span class="qa-mark q">Q</span><span class="qa-qtext">${esc(q)}</span></div>
+${a? `<div class="qa-line"><span class="qa-mark a">A</span><span class="qa-atext">${esc(a)}</span></div>`: ''}
+<div class="rowline mt4"><span class="muted" style="font-size:11px">${t.langs.join(' · ')}</span>
+${t.usage_count > 0? `<span class="muted" style="font-size:11px;margin-left:auto">用过${t.usage_count}</span>`: ''}</div>
+</div>`;
+};
+const draw = (list) => {
+tplCurrentIds = [];
+const el = $('#t-list');
+if (!list.length) { el.innerHTML = `<div class="empty">没有符合的模板，换个关键词或新增一条</div>`; return;}
+let h = '';
+if (!tplQuery.trim()) {
+const fav = list.filter((t) => t.usage_count > 0).slice(0, 5);
+if (fav.length) h += `<div class="sechead">常用</div>` + fav.map(rowHtml).join('');
+}
+for (const sc of SCENE_ORDER) {
+const g = list.filter((t) => t.scene === sc);
+if (g.length) h += `<div class="sechead">${TPL_SCENE[sc]}</div>` + g.map(rowHtml).join('');
+}
+const rest = list.filter((t) =>!SCENE_ORDER.includes(t.scene));
+if (rest.length) h += `<div class="sechead">其他</div>` + rest.map(rowHtml).join('');
+el.innerHTML = h;
+el.querySelectorAll('.card').forEach((c) => c.onclick = () => location.hash = '#/tpl/' + c.dataset.id);
+};
+let timer = null;
+const load = async () => {
+try { draw(await api('/api/reply-templates' + (tplQuery.trim()? '?q=' + encodeURIComponent(tplQuery.trim()): '')));}
+catch (e) { $('#t-list').innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;}
+};
+$('#t-q').oninput = (e) => {
+tplQuery = e.target.value;
+clearTimeout(timer);
+timer = setTimeout(load, 350);
+};
+await load();
+if (openId) openTplModal(openId);
 }
 
-/* ---------- 使用页：预览一恒为中文对照 + 预览二（自带语言切换+复制） ---------- */
-async function viewTplUse(id) {
-  setNav('tpl');
-  app.innerHTML = `${topbar('加载中…', '#/tpl')}<div class="page"><div class="empty">加载中…</div></div>`;
-  let t;
-  try { t = await api('/api/reply-templates/' + id); }
-  catch (e) { app.innerHTML = `${topbar('出错', '#/tpl')}<div class="page"><div class="empty">${esc(e.message)}</div></div>`; return; }
-  if (!t.locales.length) {
-    app.innerHTML = `${topbar(t.key, '#/tpl')}<div class="page"><div class="empty">该模板没有任何语言版本，请编辑补充</div></div>`;
-    return;
-  }
-  let snippets = [];
-  try { snippets = await api('/api/snippets'); } catch {}
-  const avail = t.locales.map((l) => l.lang);
-  const state = { slots: {} };
-  const last = tplLastLang();
-  state.lang = avail.includes(last) ? last : (avail.includes('EN') ? 'EN' : avail[0]);
+/* ---------- 弹窗：填空 + 话术框（高亮已填值）+ 语言下拉 + 翻译双向切换 + 复制 ---------- */
+async function openTplModal(id) {
+const root = $('#tpl-modal-root');
+if (!root) return;
+clearModalKey();
+root.innerHTML = `<div class="modal-backdrop"><div class="modal-sheet"><div class="empty">加载中…</div></div></div>`;
+let t;
+try { t = await api('/api/reply-templates/' + id);}
+catch (e) { root.innerHTML = ''; toast(e.message); location.hash = '#/tpl'; return;}
+if (!t.locales.length) {
+root.innerHTML = '';
+toast('该模板没有任何语言版本，请编辑补充');
+location.hash = '#/tpl/' + t.id + '/edit';
+return;
+}
+let snippets = [];
+try { snippets = await api('/api/snippets');} catch {}
+const avail = t.locales.map((l) => l.lang);
+const state = { lang: tplLastLangFor(t.id, avail), view: 'orig', slots: {}};
+const idx = () => tplCurrentIds.indexOf(t.id);
+const go = (delta) => {
+const i = idx() + delta;
+if (i < 0 || i >= tplCurrentIds.length) return;
+location.hash = '#/tpl/' + tplCurrentIds[i];
+};
+const expandLocal = (body, lang) =>
+body.replace(/\{\{\s*snippet:([a-z_]+)\s*\}\}/g, (_, k) => {
+const s = snippets.find((x) => x.key === k && x.lang === lang)
+|| snippets.find((x) => x.key === k && x.lang === 'EN');
+return s? s.body: '';
+});
+const locOf = () => t.locales.find((l) => l.lang === state.lang) || t.locales[0];
+const missing = () => (t.vars || [])
+.filter((v) => v.required &&!String(state.slots[v.name] || '').trim());
+// 话术框 HTML：已填值高亮，未填显示
+const boxHTML = () => {
+const raw = state.view === 'zh'? (t.gloss_zh || ''): locOf().body;
+const expanded = expandLocal(raw, state.view === 'zh'? 'EN': locOf().lang);
+return expanded.split(/(\{\{\s*[a-z_]+\s*\}\})/g).map((p) => {
+const m = p.match(/^\{\{\s*([a-z_]+)\s*\}\}$/);
+if (!m) return esc(p);
+const v = (t.vars || []).find((x) => x.name === m[1]);
+const val = state.slots[m[1]];
+if (val) return `<mark class="slotval">${esc(val)}</mark>`;
+return `<span class="slotempty"></span>`;
+}).join('');
+};
+const close = () => { if (location.hash!== '#/tpl') location.hash = '#/tpl';};
 
-  const expandLocal = (body, lang) =>
-    body.replace(/\{\{\s*snippet:([a-z_]+)\s*\}\}/g, (_, k) => {
-      const s = snippets.find((x) => x.key === k && x.lang === lang)
-        || snippets.find((x) => x.key === k && x.lang === 'EN');
-      return s ? s.body : '';
-    });
-  const fillVars = (body) =>
-    body.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, k) => (state.slots[k] ?? ''));
-  const locOf = () => t.locales.find((l) => l.lang === state.lang) || t.locales[0];
-  const glossText = () => (t.gloss_zh || '').trim()
-    ? fillVars(expandLocal(t.gloss_zh, 'EN'))
-    : '';
-  const sendText = () => fillVars(expandLocal(locOf().body, locOf().lang));
-  const missing = () => (t.vars || [])
-    .filter((v) => v.required && !String(state.slots[v.name] || '').trim());
+root.innerHTML = `
+<div class="modal-backdrop" id="m-bg">
+<div class="modal-sheet" id="m-sheet">
+<div class="modal-head">
+<span class="modal-title">${esc(locOf().title)}</span>
+<button class="modal-x" id="m-close" aria-label="关闭">×</button>
+</div>
+<div class="modal-body">
+${t.note_zh? `<div class="muted" style="font-size:12px">${esc(t.note_zh)}</div>`: ''}
+${(t.vars || []).length? `<div class="mt8" id="m-slots">${t.vars.map((v) => `
+<label class="fl" style="margin-top:8px">${esc(v.label_zh || v.name)}${v.required? ' <span style="color:var(--danger)">*</span>': ''}
+<span class="muted" style="font-weight:400"> · ${VAR_TYPE_ZH[v.type] || '文本'}</span></label>
+${v.type === 'date'
+? `<input type="date" data-slot="${esc(v.name)}" value="${esc(state.slots[v.name] || '')}">`
+: `<input data-slot="${esc(v.name)}" value="${esc(state.slots[v.name] || '')}"
+${v.type === 'number'? 'inputmode="decimal"': ''}
+placeholder="${v.sample? '如：' + esc(v.sample): '填写' + esc(v.label_zh || v.name)}">`
+}`).join('')}</div>`: ''}
+<div class="talkbox" id="m-box"></div>
+<div class="modal-controls">
+<div class="ctrlrow">
+<select id="m-lang">${avail.map((l) =>
+`<option value="${l}" ${l === state.lang? 'selected': ''}>${l} ${TPL_LANG[l]}</option>`).join('')}</select>
+<button class="btn ghost" id="m-flip"></button>
+</div>
+<button class="btn" id="m-copy"></button>
+<div class="miss" id="m-miss"></div>
+<div class="muted" style="text-align:center;font-size:11px">红线：必填项没填时不许复制发出 · 中文对照仅供理解</div>
+</div>
+<div class="btnrow mt8">
+<button class="btn ghost" id="m-prev" ${idx() <= 0? 'disabled': ''}>← 上一条</button>
+<button class="btn ghost" id="m-next" ${idx() >= tplCurrentIds.length - 1? 'disabled': ''}>下一条 →</button>
+<button class="btn ghost" id="m-edit">编辑</button>
+</div>
+</div>
+</div>
+</div>`;
 
-  const paint = () => {
-    const loc = locOf();
-    const miss = missing();
-    const missTxt = miss.length ? '还差：' + miss.map((v) => v.label_zh || v.name).join('、') : '';
-    app.innerHTML = `${topbar(loc.title, '#/tpl')}
-    <div class="page" style="padding-bottom:16px">
-      ${t.note_zh ? `<details class="card"><summary style="font-weight:700;font-size:13px">什么时候用</summary><div class="muted mt4">${esc(t.note_zh)}</div></details>` : ''}
-      <div class="card mt8"><div style="font-weight:700;margin-bottom:4px">填空</div>
-        <div>${(t.vars || []).length ? t.vars.map((v) => `
-          <label class="fl" style="margin-top:10px">${esc(v.label_zh || v.name)}${v.required ? ' <span style="color:var(--danger)">*</span>' : ''}
-            <span class="muted" style="font-weight:400"> · ${VAR_TYPE_ZH[v.type] || '文本'}</span></label>
-          ${v.type === 'date'
-            ? `<input type="date" data-slot="${esc(v.name)}" value="${esc(state.slots[v.name] || '')}">`
-            : `<input data-slot="${esc(v.name)}" value="${esc(state.slots[v.name] || '')}"
-                ${v.type === 'number' ? 'inputmode="decimal"' : ''}
-                placeholder="${v.sample ? '如：' + esc(v.sample) : '填写' + esc(v.label_zh || v.name)}">`
-          }`).join('')
-          : '<div class="muted">这条模板没有填空位，可直接复制</div>'}</div>
-      </div>
-      <div class="card mt8">
-        <div style="font-weight:700">预览一 · 中文对照 <span class="muted" style="font-weight:400;font-size:11px">仅供理解，不发送</span></div>
-        ${glossText()
-          ? `<div class="preview" id="u-prev-zh"></div>`
-          : '<div class="muted mt4" style="font-size:12px">暂无中文对照，可在编辑页补充</div>'}
-      </div>
-      <div class="card mt8">
-        <div class="rowline"><span style="font-weight:700">预览二 · 发送文本</span>
-          <span class="muted" style="font-size:11px">选语言</span></div>
-        <div class="seg" id="u-langs">${avail.map((l) =>
-          `<button class="chip ${l === state.lang ? 'on' : ''}" data-lang="${l}">${l} ${TPL_LANG[l]}</button>`).join('')}
-        </div>
-        <div class="preview" id="u-prev"></div>
-        <div class="lockbar">共享片段 · 落款（${loc.lang}），如需修改请到片段管理</div>
-        <div class="miss" id="u-miss" style="margin-top:8px">${esc(missTxt)}</div>
-        <button class="btn ${miss.length ? 'dim' : ''}" id="u-copy">复制${TPL_LANG[state.lang]}文本</button>
-        <div class="muted mt8" style="text-align:center;font-size:11px">红线：必填项没填时不许复制发出</div>
-      </div>
-      <div class="btnrow mt8">
-        <button class="btn ghost" id="u-edit">编辑模板</button>
-        <button class="btn danger" id="u-del">删除</button>
-      </div>
-    </div>`;
-    const zhPrev = $('#u-prev-zh');
-    if (zhPrev) zhPrev.textContent = glossText();
-    $('#u-prev').textContent = sendText();
-    const refresh = () => {
-      if ($('#u-prev-zh')) $('#u-prev-zh').textContent = glossText();
-      $('#u-prev').textContent = sendText();
-      const m = missing();
-      $('#u-miss').textContent = m.length ? '还差：' + m.map((v) => v.label_zh || v.name).join('、') : '';
-      const btn = $('#u-copy');
-      btn.classList.toggle('dim', m.length > 0);
-      btn.textContent = `复制${TPL_LANG[state.lang]}文本`;
-    };
-    app.querySelectorAll('[data-slot]').forEach((i) => {
-      i.oninput = () => { state.slots[i.dataset.slot] = i.value; refresh(); };
-    });
-    app.querySelectorAll('#u-langs .chip').forEach((b) => {
-      b.onclick = () => {
-        state.lang = b.dataset.lang;
-        localStorage.setItem('tpl_last_lang', state.lang);
-        paint();
-      };
-    });
-    $('#u-copy').onclick = async () => {
-      const m = missing();
-      if (m.length) return toast(`红线：${m.map((v) => v.label_zh || v.name).join('、')}不能为空，填好再复制`);
-      try {
-        const r = await api(`/api/reply-templates/${t.id}/render`, {
-          method: 'POST', body: JSON.stringify({ lang: state.lang, slots: state.slots }),
-        });
-        await navigator.clipboard.writeText(r.text);
-        api(`/api/reply-templates/${t.id}/use`, { method: 'POST' }).catch(() => {});
-        toast('已复制，去阿里消息中心粘贴');
-      } catch (e) { toast(e.message); }
-    };
-    $('#u-edit').onclick = () => location.hash = '#/tpl/' + t.id + '/edit';
-    $('#u-del').onclick = async () => {
-      if (!confirm(`确定删除模板「${loc.title}」（${avail.join('/')} ${avail.length} 个语言版本）？`)) return;
-      try { await api('/api/reply-templates/' + t.id, { method: 'DELETE' }); toast('已删除'); location.hash = '#/tpl'; }
-      catch (e) { toast(e.message); }
-    };
-  };
-  paint();
+const refresh = () => {
+$('#m-box').innerHTML = boxHTML();
+const m = missing();
+const zhView = state.view === 'zh';
+$('#m-flip').textContent = zhView? '看原文': '看中文对照';
+const copyBtn = $('#m-copy');
+copyBtn.textContent = zhView? '中文对照不可复制': `复制${TPL_LANG[state.lang]}文本`;
+copyBtn.classList.toggle('dim', zhView || m.length > 0);
+$('#m-miss').textContent = zhView? '当前是中文对照，切回原文再复制'
+: (m.length? '还差：' + m.map((v) => v.label_zh || v.name).join('、'): '');
+$('#m-sheet').querySelector('.modal-title').textContent = locOf().title;
+};
+root.querySelectorAll('[data-slot]').forEach((i) => {
+i.oninput = () => { state.slots[i.dataset.slot] = i.value; refresh();};
+});
+$('#m-lang').onchange = (e) => {
+state.lang = e.target.value;
+localStorage.setItem(tplLangKey(t.id), state.lang);
+refresh();
+};
+$('#m-flip').onclick = () => { state.view = state.view === 'orig'? 'zh': 'orig'; refresh();};
+$('#m-copy').onclick = async () => {
+if (state.view === 'zh') return toast('中文对照仅供理解，切回原文再复制');
+const m = missing();
+if (m.length) return toast(`红线：${m.map((v) => v.label_zh || v.name).join('、')}不能为空，填好再复制`);
+try {
+const r = await api(`/api/reply-templates/${t.id}/render`, {
+method: 'POST', body: JSON.stringify({ lang: state.lang, slots: state.slots}),
+});
+await navigator.clipboard.writeText(r.text);
+api(`/api/reply-templates/${t.id}/use`, { method: 'POST'}).catch(() => {});
+toast('已复制，去阿里消息中心粘贴');
+} catch (e) { toast(e.message);}
+};
+$('#m-close').onclick = close;
+$('#m-bg').onclick = (e) => { if (e.target.id === 'm-bg') close();};
+$('#m-prev').onclick = () => go(-1);
+$('#m-next').onclick = () => go(1);
+$('#m-edit').onclick = () => location.hash = '#/tpl/' + t.id + '/edit';
+tplModalKeyHandler = (e) => { if (e.key === 'Escape') close();};
+document.addEventListener('keydown', tplModalKeyHandler);
+refresh();
 }
 
 /* ---------- 编辑页：语言标签页 + 变量管理 + 片段插入 ---------- */
