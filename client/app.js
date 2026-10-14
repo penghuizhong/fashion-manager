@@ -53,6 +53,7 @@ function route() {
   if (parts[0] === 'tpl' && parts[2] === 'edit') { const eid = Number(parts[1]); if (!(tplModalId === eid && tplModalMode === 'edit')) openTplModal(eid, 'edit'); return; }
   if (parts[0] === 'tpl' && parts[1]) return viewTplList(parts[1]);
   if (parts[0] === 'tpl') return viewTplList();
+  if (parts[0] === 'ai') return viewAi();
   if (parts[0] === 'design') return viewStub('设计台', '二期：一键改款出图、设计灵感库、样衣参考尺寸。');
   if (parts[0] === 'pattern') return viewStub('制版台', '二期：制版工具、公式计算器、纸样库。');
   return viewList();
@@ -843,6 +844,123 @@ function viewStub(title, desc) {
   app.innerHTML = `${topbar(title)}<div class="page"><div class="empty">${esc(desc)}<br><br>当前 MVP 只做样衣台，<br>从左侧导航切到「样衣台」开始用。</div></div>`;
 }
 
+/* ---------------- AI 话术助手（v0.8.0） ---------------- */
+async function viewAi() {
+  setNav('ai');
+  app.innerHTML = `${topbar('AI 话术助手')}
+  <div class="page">
+    <div id="ai-warn"></div>
+    <textarea id="ai-msg" rows="4" placeholder="粘贴买家消息，AI 从话术库选模板并填空"></textarea>
+    <button class="btn" id="ai-go" style="width:100%;margin-top:8px">生成话术</button>
+    <div id="ai-result" class="mt8"></div>
+  </div>`;
+  const warn = $('#ai-warn'), ta = $('#ai-msg'), go = $('#ai-go'), res = $('#ai-result');
+  let hasKey = false;
+  try { hasKey = !!(await api('/api/admin/config')).has_key; }
+  catch (e) { warn.innerHTML = `<div class="miss">配置读取失败：${esc(e.message)}</div>`; }
+  if (!hasKey) {
+    warn.innerHTML = `<div class="card ai-warnbox"><div>请先配置模型服务，才能使用 AI 话术助手。</div><button class="btn ghost" id="ai-open-admin">去配置</button></div>`;
+    go.disabled = true; go.classList.add('dim');
+    const oa = $('#ai-open-admin');
+    if (oa) oa.onclick = () => openAdminModal();
+  }
+  go.onclick = async () => {
+    const message = ta.value.trim();
+    if (!message) return toast('请先粘贴买家消息');
+    go.disabled = true; res.innerHTML = '<div class="muted">AI 生成中…</div>';
+    try {
+      const d = await api('/api/ai/assist', { method: 'POST', body: JSON.stringify({ message }) });
+      aiRenderResult(d);
+    } catch (e) { res.innerHTML = `<div class="miss">${esc(e.message)}</div>`; }
+    finally { go.disabled = false; }
+  };
+}
+function aiRenderResult(d) {
+  const res = $('#ai-result');
+  const miss = (d.missing && d.missing.length) ? d.missing : [];
+  res.innerHTML = `
+  <div class="card">
+    <div class="muted">出处：${esc(d.template_key)} · ${esc(d.note_zh || '')}</div>
+    <div class="talkbox mt8">${esc(d.filled_text)}</div>
+    ${miss.length ? `<div class="miss">红线：${miss.map(esc).join('、')}未填写，填好才能复制</div>` : '<div class="miss"></div>'}
+    <button class="btn" id="ai-copy" style="width:100%;margin-top:8px">复制话术</button>
+    <div class="muted" style="text-align:center;margin-top:6px">红线：必填项没填时不许复制 · 粘贴到阿里消息中心，平台自动翻译</div>
+  </div>`;
+  const cp = $('#ai-copy');
+  if (cp) cp.onclick = async () => {
+    if (miss.length) return toast(`红线：${miss.join('、')}不能为空，填好再复制`);
+    try {
+      await navigator.clipboard.writeText(d.filled_text);
+      api(`/api/reply-templates/${d.template_id}/use`, { method: 'POST' }).catch(() => {});
+      toast('已复制，去阿里消息中心粘贴');
+    } catch (e) { toast('复制失败：' + e.message); }
+  };
+}
+
+/* ---------------- 管理设置弹窗（全局 Modal + 横向滑动二级导航） ---------------- */
+let adminTab = 'model';
+function openAdminModal() {
+  adminTab = 'model';
+  Modal.open({ title: '管理设置', body: adminBodyHTML() });
+  bindAdmin();
+}
+function adminBodyHTML() {
+  return `<div class="admin-tabs">
+    <button class="atab ${adminTab === 'model' ? 'on' : ''}" data-atab="model">模型服务</button>
+    <button class="atab ${adminTab === 'tags' ? 'on' : ''}" data-atab="tags">标签词表</button>
+  </div><div id="admin-pane">${adminTab === 'model' ? adminModelHTML() : adminTagsHTML()}</div>`;
+}
+function adminModelHTML() {
+  return `<div id="admin-model-form">
+    <label class="fl">API Key <span class="muted">（已设置时留空不覆盖）</span></label>
+    <input type="password" id="adm-key" placeholder="未设置，请输入" autocomplete="off">
+    <label class="fl">Base URL</label>
+    <input id="adm-base" autocomplete="off">
+    <label class="fl">对话模型</label>
+    <input id="adm-chat" autocomplete="off">
+    <label class="fl">向量模型</label>
+    <input id="adm-emb" autocomplete="off">
+    <label class="fl">视觉模型</label>
+    <input id="adm-vision" autocomplete="off">
+    <button class="btn" id="adm-save" style="width:100%;margin-top:12px">保存</button>
+    <div class="miss" id="adm-msg"></div>
+  </div>`;
+}
+function adminTagsHTML() {
+  return `<div class="empty">标签系统（0.3）开发中，<br>词表定稿后在这里管理。</div>`;
+}
+async function bindAdmin() {
+  document.querySelectorAll('#m-body [data-atab]').forEach((b) => {
+    b.onclick = () => { adminTab = b.dataset.atab; Modal.setBody(adminBodyHTML()); bindAdmin(); };
+  });
+  if (adminTab !== 'model') return;
+  try {
+    const c = await api('/api/admin/config');
+    const g = (id) => document.getElementById(id);
+    if (g('adm-base')) g('adm-base').value = c.base_url || '';
+    if (g('adm-chat')) g('adm-chat').value = c.chat_model || '';
+    if (g('adm-emb')) g('adm-emb').value = c.embedding_model || '';
+    if (g('adm-vision')) g('adm-vision').value = c.vision_model || '';
+    if (g('adm-key')) g('adm-key').placeholder = c.has_key ? '已设置（留空不修改）' : '未设置，请输入';
+  } catch (e) { /* 提交时再报错 */ }
+  const save = document.getElementById('adm-save');
+  if (save) save.onclick = async () => {
+    const g = (id) => document.getElementById(id).value.trim();
+    const msg = document.getElementById('adm-msg');
+    save.disabled = true;
+    try {
+      await api('/api/admin/config', { method: 'PUT', body: JSON.stringify({
+        api_key: g('adm-key'), base_url: g('adm-base'), chat_model: g('adm-chat'),
+        embedding_model: g('adm-emb'), vision_model: g('adm-vision'),
+      }) });
+      msg.style.color = '#16a34a'; msg.textContent = '已保存';
+      const k = document.getElementById('adm-key');
+      if (k) { k.value = ''; k.placeholder = '已设置（留空不修改）'; }
+    } catch (e) { msg.style.color = ''; msg.textContent = e.message; }
+    finally { save.disabled = false; }
+  };
+}
+
 /* ---------------- 启动 ---------------- */
 (function init() {
   document.addEventListener('click', (e) => {
@@ -853,6 +971,8 @@ function viewStub(title, desc) {
   $('#collapse-btn').onclick = () => root.classList.remove('sidebar-open');
   $('#expand-btn').onclick = () => root.classList.add('sidebar-open');
   $('#backdrop').onclick = () => root.classList.remove('sidebar-open');
+  const ab = $('#admin-btn');
+  if (ab) ab.onclick = () => openAdminModal();
   // 移动端默认收起为抽屉
   if (window.matchMedia('(max-width:768px)').matches) root.classList.remove('sidebar-open');
   (async () => {
