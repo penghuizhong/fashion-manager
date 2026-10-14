@@ -45,3 +45,8 @@ AI 改款出图（POST /api/redesign 三步流水线，见方案）、公式计�
 - `POST /api/quotations` · `GET/PUT /api/quotations/:id` · `GET /api/quotations/:id/text`
 - `GET /api/reply-templates?lang=&scene=` · `GET/POST /api/reply-templates` · `GET/PUT/DELETE /api/reply-templates/:id`
 - `POST /api/reply-templates/:id/render`（填空渲染；价格/交期缺失报 400）· `POST /api/reply-templates/reseed`（种子重建）
+
+## 缓存约定（2026-10-14 教训）
+- index.html 本身不缓存（max-age=0），但 app.js/styles.css 经 Cloudflare 会被缓存 4 小时。
+- 因此 index.html 里的静态资源 URL 必须带版本号 `?v=<当前版本>`（如 `/app.js?v=0.4.1`），每次发版同步更新。
+- 否则用户手机会一直跑旧 JS，看起来"新版跟旧版一点没变"。
