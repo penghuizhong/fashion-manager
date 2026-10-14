@@ -38,6 +38,9 @@ function setNav(active) {
 function route() {
   const h = location.hash || '#/';
   const parts = h.slice(2).split('/');
+  // 弹窗是纯 DOM（挂 body），路由切换页面时必须手动清掉；模板弹窗地址本身除外
+  const isTplModal = parts[0] === 'tpl' && parts[1] && parts[1] !== 'new' && parts[2] !== 'edit';
+  if (!isTplModal && tplModalId !== null) { tplModalId = null; tplModalPushed = false; Modal.clear(); }
   if (parts[0] === '' ) return viewList();
   if (parts[0] === 'new') return viewNew();
   if (parts[0] === 'g' && parts[1] && !parts[2]) return viewDetail(parts[1]);
@@ -396,15 +399,11 @@ let tplQuery = '';
 
 /* ---------- 列表：QA 模式（Q 场景句 + A 中文首句预览），点卡开弹窗 ---------- */
 let tplCurrentIds = [];
-let tplModalKeyHandler = null;
 const tplLangKey = (id) => 'tpl_lang_' + id;
 const tplLastLangFor = (id, avail) => {
   const last = localStorage.getItem(tplLangKey(id));
   if (last && avail.includes(last)) return last;
   return avail.includes('EN') ? 'EN' : avail[0];
-};
-const clearModalKey = () => {
-  if (tplModalKeyHandler) { document.removeEventListener('keydown', tplModalKeyHandler); tplModalKeyHandler = null; }
 };
 // A 预览：中文对照首句，变量替换为【中文名】
 const aPreview = (t) => {
@@ -414,21 +413,85 @@ const aPreview = (t) => {
   (t.vars || []).forEach((v) => { varMap[v.name] = '【' + (v.label_zh || v.name) + '】'; });
   return first.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, k) => varMap[k] || '');
 };
-let tplLastList = []; // 最近一次列表数据，供弹窗骨架屏显示真实标题
-let snippetCache = null; // 落款片段只拉一次（前端不改片段，缓存安全）
-let tplModalSeq = 0; // 弹窗序号：关闭/切换时作废在途请求
-const getSnippets = async () => {
-if (!snippetCache) snippetCache = await api('/api/snippets').catch(() => []);
-return snippetCache;
+/* ================= 全局弹窗组件（项目内所有弹窗统一用它） =================
+* 用法：
+* Modal.open({ title, body, onClose}) // 打开；若已打开则原地换内容，不重播动画
+* Modal.setTitle(t) / Modal.setBody(html) // 更新
+* Modal.close() // 用户关闭（触发 onClose）
+* Modal.clear() // 静默关闭（不触发 onClose，供 popstate / 页面跳转用）
+* Modal.isOpen()
+* Modal.confirm({ title, body, okText, onOk}) // 确认框
+* 样式：.modal-backdrop /.modal-sheet（styles.css 全局）
+* 历史由调用方管理（pushState / popstate），组件只管 DOM + Esc + 点遮罩。
+* 弹窗挂在 document.body（Portal 式），不受 app.innerHTML 重绘影响。
+*/
+const Modal = (() => {
+let onCloseCb = null, keyHandler = null;
+const isOpen = () =>!!document.querySelector('#global-modal-root .modal-backdrop');
+const rootEl = () => {
+let r = document.getElementById('global-modal-root');
+if (!r) { r = document.createElement('div'); r.id = 'global-modal-root'; document.body.appendChild(r);}
+return r;
 };
+function open({ title = '', body = '', onClose = null} = {}) {
+if (isOpen()) { setTitle(title); setBody(body); onCloseCb = onClose; return; }
+rootEl().innerHTML = `<div class="modal-backdrop" id="m-bg"><div class="modal-sheet" id="m-sheet">
+<div class="modal-head"><span class="modal-title">${esc(title)}</span>
+<button class="modal-x" id="m-close" aria-label="关闭">×</button></div>
+<div class="modal-body" id="m-body">${body}</div></div></div>`;
+onCloseCb = onClose;
+const b = document.getElementById('m-close');
+if (b) b.onclick = close;
+const bg = document.getElementById('m-bg');
+if (bg) bg.onclick = (e) => { if (e.target.id === 'm-bg') close();};
+if (keyHandler) document.removeEventListener('keydown', keyHandler);
+keyHandler = (e) => { if (e.key === 'Escape') close();};
+document.addEventListener('keydown', keyHandler);
+}
+function setTitle(t) { const el = document.querySelector('#m-sheet .modal-title'); if (el) el.textContent = t;}
+function setBody(html) { const el = document.getElementById('m-body'); if (el) el.innerHTML = html;}
+function close() { const cb = onCloseCb; clear(); if (cb) cb();}
+function clear() {
+const r = document.getElementById('global-modal-root');
+if (r) r.innerHTML = '';
+onCloseCb = null;
+if (keyHandler) { document.removeEventListener('keydown', keyHandler); keyHandler = null;}
+}
+function confirm({ title = '确认', body = '', okText = '确定', onOk = null} = {}) {
+open({ title, body: `${body}<div class="modal-foot">
+<button class="btn ghost" id="m-cancel">取消</button>
+<button class="btn" id="m-ok">${esc(okText)}</button></div>`, onClose: null});
+const ok = document.getElementById('m-ok');
+if (ok) ok.onclick = () => { clear(); if (onOk) onOk();};
+const cancel = document.getElementById('m-cancel');
+if (cancel) cancel.onclick = () => clear();
+}
+return { open, setTitle, setBody, close, clear, isOpen, confirm};
+})();
+
+/* ---------- 列表：QA 模式（Q 场景句 + A 中文首句预览），点卡开纯弹窗 ---------- */
+let tplLastList = []; // 列表数据（含各语言正文），弹窗直接取用，零请求
+let snippetCache = []; // 落款片段，随列表一次返回
+let tplModalId = null; // 当前打开的模板 id（number），null = 未打开
+let tplModalPushed = false;// 本次弹窗是否 push 过历史
+
+// 模板弹窗历史同步：浏览器前进/后退时开/关弹窗（不走路由重绘）
+function syncTplModalFromHistory() {
+const h = location.hash || '#/';
+const parts = h.slice(2).split('/');
+if (parts[0] === 'tpl' && parts[1] && parts[1]!== 'new' && parts[2]!== 'edit') {
+const id = Number(parts[1]);
+if (tplModalId!== id) { tplModalPushed = true; openTplModal(id);}
+} else if (tplModalId!== null) {
+tplModalPushed = false; tplModalId = null; Modal.clear();
+}
+}
+window.addEventListener('popstate', syncTplModalFromHistory);
 
 async function viewTplList(openId) {
 setNav('tpl');
-clearModalKey();
-// 列表已在 DOM（开/关弹窗、点上一条下一条时）：不重拉列表、不重绘，直接开弹窗或清弹窗
 if (document.getElementById('t-list')) {
-if (openId) openTplModal(openId);
-else { const r = document.getElementById('tpl-modal-root'); if (r) r.innerHTML = '';}
+if (openId && tplModalId!== Number(openId)) openTplModal(openId);
 return;
 }
 app.innerHTML = `${topbar('回复模板库')}
@@ -436,12 +499,10 @@ app.innerHTML = `${topbar('回复模板库')}
 <input id="t-q" class="searchbar" placeholder="搜索：标题 / 正文 / 使用说明" value="${esc(tplQuery)}" autocomplete="off">
 <button class="btn ghost" id="t-new">+ 新增模板</button>
 <div id="t-list" class="mt8"><div class="empty">加载中…</div></div>
-</div>
-<div id="tpl-modal-root"></div>`;
+</div>`;
 $('#t-new').onclick = () => location.hash = '#/tpl/new';
 const rowHtml = (t) => {
-    if (!tplCurrentIds.includes(t.id)) tplCurrentIds.push(t.id); // 常用+分组重复展示，导航列表去重
-
+if (!tplCurrentIds.includes(t.id)) tplCurrentIds.push(t.id); // 常用+分组重复展示，导航列表去重
 const q = t.note_zh || t.title;
 const a = aPreview(t);
 return `
@@ -452,8 +513,10 @@ ${a? `<div class="qa-line"><span class="qa-mark a">A</span><span class="qa-atext
 ${t.usage_count > 0? `<span class="muted" style="font-size:11px;margin-left:auto">用过${t.usage_count}</span>`: ''}</div>
 </div>`;
 };
-const draw = (list) => {
-tplLastList = list;
+const draw = (data) => {
+tplLastList = data.templates || [];
+snippetCache = data.snippets || [];
+const list = tplLastList;
 tplCurrentIds = [];
 const el = $('#t-list');
 if (!list.length) { el.innerHTML = `<div class="empty">没有符合的模板，换个关键词或新增一条</div>`; return;}
@@ -469,7 +532,13 @@ if (g.length) h += `<div class="sechead">${TPL_SCENE[sc]}</div>` + g.map(rowHtml
 const rest = list.filter((t) =>!SCENE_ORDER.includes(t.scene));
 if (rest.length) h += `<div class="sechead">其他</div>` + rest.map(rowHtml).join('');
 el.innerHTML = h;
-el.querySelectorAll('.card').forEach((c) => c.onclick = () => location.hash = '#/tpl/' + c.dataset.id);
+el.querySelectorAll('.card').forEach((c) => c.onclick = () => {
+// 纯弹窗：pushState 只记地址（不触发 hashchange、不走路由重绘），同步开弹窗
+const id = Number(c.dataset.id);
+history.pushState({ tplModal: id}, '', '#/tpl/' + id);
+tplModalPushed = true;
+openTplModal(id);
+});
 };
 let timer = null;
 const load = async () => {
@@ -485,50 +554,18 @@ await load();
 if (openId) openTplModal(openId);
 }
 
-/* ---------- 弹窗：骨架屏秒开 + 并行取数 + 上滑动画 ---------- */
-async function openTplModal(id) {
-const root = $('#tpl-modal-root');
-if (!root) return;
-clearModalKey();
-const seq = ++tplModalSeq;
-const hint = (tplLastList || []).find((t) => t.id === id);
-const close = () => { tplModalSeq++; if (location.hash!== '#/tpl') location.hash = '#/tpl';};
-const bindClose = () => { const b = $('#m-close'); if (b) b.onclick = close;};
-// 骨架屏：同步画壳，点下即有反馈，不等网络
-const skeleton = `
-<div class="modal-head">
-<span class="modal-title">${hint? esc(hint.title): '加载中…'}</span>
-<button class="modal-x" id="m-close" aria-label="关闭">×</button>
-</div>
-<div class="modal-body"><div class="skel-box"></div><div class="skel-line"></div><div class="skel-line" style="width:60%"></div></div>`;
-const sheet = root.querySelector('#m-sheet');
-if (!sheet) {
-// 首次打开：建壳并播上滑动画
-root.innerHTML = `<div class="modal-backdrop" id="m-bg"><div class="modal-sheet" id="m-sheet">${skeleton}</div></div>`;
-$('#m-bg').onclick = (e) => { if (e.target.id === 'm-bg') close();};
-} else {
-// 上一条/下一条切换：复用壳，只换骨架，不重播动画
-sheet.innerHTML = skeleton;
-}
-bindClose();
-tplModalKeyHandler = (e) => { if (e.key === 'Escape') close();};
-document.addEventListener('keydown', tplModalKeyHandler);
-// 详情 + 片段并行拉（原先串行两次请求）
-let t, snippets;
-try {
-[t, snippets] = await Promise.all([api('/api/reply-templates/' + id), getSnippets()]);
-} catch (e) {
-if (seq!== tplModalSeq) return;
-root.innerHTML = ''; toast(e.message); location.hash = '#/tpl'; return;
-}
-if (seq!== tplModalSeq) return; // 期间已关闭或已切到另一条
-if (!document.getElementById('tpl-modal-root')) return;
-if (!t.locales.length) {
-root.innerHTML = '';
-toast('该模板没有任何语言版本，请编辑补充');
-location.hash = '#/tpl/' + t.id + '/edit';
+/* ---------- 模板弹窗：同步渲染（数据已在列表里，零等待） ---------- */
+function openTplModal(id) {
+id = Number(id);
+const t = (tplLastList || []).find((x) => x.id === id);
+if (!t) {
+// 本地没数据（历史导航回来时列表未加载）：先渲染列表，加载后自动开弹窗
+if (!document.getElementById('t-list')) { viewTplList(id); return;}
+toast('模板不存在');
+history.replaceState(null, '', '#/tpl');
 return;
 }
+tplModalId = id;
 const avail = t.locales.map((l) => l.lang);
 const state = { lang: tplLastLangFor(t.id, avail), view: 'orig', slots: {}};
 const idx = () => tplCurrentIds.indexOf(t.id);
@@ -536,14 +573,14 @@ const go = (delta) => {
 const i = idx() + delta;
 if (i < 0 || i >= tplCurrentIds.length) return;
 const nid = tplCurrentIds[i];
-// 换地址但不进 history、不触发路由重绘列表；返回键仍回到列表
-history.replaceState(null, '', '#/tpl/' + nid);
+// 换地址但不进 history、不触发路由；返回键仍回到列表
+history.replaceState({ tplModal: nid}, '', '#/tpl/' + nid);
 openTplModal(nid);
 };
 const expandLocal = (body, lang) =>
 body.replace(/\{\{\s*snippet:([a-z_]+)\s*\}\}/g, (_, k) => {
-const s = snippets.find((x) => x.key === k && x.lang === lang)
-|| snippets.find((x) => x.key === k && x.lang === 'EN');
+const s = snippetCache.find((x) => x.key === k && x.lang === lang)
+|| snippetCache.find((x) => x.key === k && x.lang === 'EN');
 return s? s.body: '';
 });
 const locOf = () => t.locales.find((l) => l.lang === state.lang) || t.locales[0];
@@ -562,14 +599,8 @@ if (val) return `<mark class="slotval">${esc(val)}</mark>`;
 return `<span class="slotempty"></span>`;
 }).join('');
 };
-
-// 填内容：只换 sheet 内部，不重建 backdrop、不重播动画
-$('#m-sheet').innerHTML = `
-<div class="modal-head">
-<span class="modal-title">${esc(locOf().title)}</span>
-<button class="modal-x" id="m-close" aria-label="关闭">×</button>
-</div>
-<div class="modal-body">
+// 弹窗体（Modal 组件管外壳与标题栏，这里只给 body）
+const bodyHTML = () => `
 ${t.note_zh? `<div class="muted" style="font-size:12px">${esc(t.note_zh)}</div>`: ''}
 ${(t.vars || []).length? `<div class="mt8" id="m-slots">${t.vars.map((v) => `
 <label class="fl" style="margin-top:8px">${esc(v.label_zh || v.name)}${v.required? ' <span style="color:var(--danger)">*</span>': ''}
@@ -583,8 +614,10 @@ placeholder="${v.sample? '如：' + esc(v.sample): '填写' + esc(v.label_zh || 
 <div class="talkbox" id="m-box"></div>
 <div class="modal-controls">
 <div class="ctrlrow">
-<select id="m-lang">${avail.map((l) =>
-`<option value="${l}" ${l === state.lang? 'selected': ''}>${l} ${TPL_LANG[l]}</option>`).join('')}</select>
+${avail.length > 1
+? `<select id="m-lang">${avail.map((l) =>
+`<option value="${l}" ${l === state.lang? 'selected': ''}>${l} ${TPL_LANG[l]}</option>`).join('')}</select>`
+: `<span class="muted" style="font-size:13px;padding:8px 0">${avail[0]} ${TPL_LANG[avail[0]]}</span>`}
 <button class="btn ghost" id="m-flip"></button>
 </div>
 <button class="btn" id="m-copy"></button>
@@ -595,32 +628,46 @@ placeholder="${v.sample? '如：' + esc(v.sample): '填写' + esc(v.label_zh || 
 <button class="btn ghost" id="m-prev" ${idx() <= 0? 'disabled': ''}>← 上一条</button>
 <button class="btn ghost" id="m-next" ${idx() >= tplCurrentIds.length - 1? 'disabled': ''}>下一条 →</button>
 <button class="btn ghost" id="m-edit">编辑</button>
-</div>
 </div>`;
+const onClose = () => {
+const wasPushed = tplModalPushed;
+tplModalId = null; tplModalPushed = false;
+// push 进来的用 history.back() 回到列表（popstate 会同步状态）；直链进来的直接改地址
+if (wasPushed) history.back();
+else history.replaceState(null, '', '#/tpl');
+};
+Modal.open({ title: locOf().title, body: bodyHTML(), onClose});
 
 const refresh = () => {
-$('#m-box').innerHTML = boxHTML();
+const box = document.getElementById('m-box');
+if (box) box.innerHTML = boxHTML();
 const m = missing();
 const zhView = state.view === 'zh';
-$('#m-flip').textContent = zhView? '看原文': '看中文对照';
-const copyBtn = $('#m-copy');
+const flip = document.getElementById('m-flip');
+if (flip) flip.textContent = zhView? '看原文': '看中文对照';
+const copyBtn = document.getElementById('m-copy');
+if (copyBtn) {
 copyBtn.textContent = zhView? '中文对照不可复制': `复制${TPL_LANG[state.lang]}文本`;
 copyBtn.classList.toggle('dim', zhView || m.length > 0);
-$('#m-miss').textContent = zhView? '当前是中文对照，切回原文再复制'
+}
+const miss = document.getElementById('m-miss');
+if (miss) miss.textContent = zhView? '当前是中文对照，切回原文再复制'
 : (m.length? '还差：' + m.map((v) => v.label_zh || v.name).join('、'): '');
-$('#m-sheet').querySelector('.modal-title').textContent = locOf().title;
+Modal.setTitle(locOf().title);
 };
-bindClose();
-root.querySelectorAll('[data-slot]').forEach((i) => {
+document.querySelectorAll('#m-body [data-slot]').forEach((i) => {
 i.oninput = () => { state.slots[i.dataset.slot] = i.value; refresh();};
 });
-$('#m-lang').onchange = (e) => {
+const langSel = document.getElementById('m-lang');
+if (langSel) langSel.onchange = (e) => {
 state.lang = e.target.value;
 localStorage.setItem(tplLangKey(t.id), state.lang);
 refresh();
 };
-$('#m-flip').onclick = () => { state.view = state.view === 'orig'? 'zh': 'orig'; refresh();};
-$('#m-copy').onclick = async () => {
+const flipBtn = document.getElementById('m-flip');
+if (flipBtn) flipBtn.onclick = () => { state.view = state.view === 'orig'? 'zh': 'orig'; refresh();};
+const copyBtn = document.getElementById('m-copy');
+if (copyBtn) copyBtn.onclick = async () => {
 if (state.view === 'zh') return toast('中文对照仅供理解，切回原文再复制');
 const m = missing();
 if (m.length) return toast(`红线：${m.map((v) => v.label_zh || v.name).join('、')}不能为空，填好再复制`);
@@ -633,9 +680,12 @@ api(`/api/reply-templates/${t.id}/use`, { method: 'POST'}).catch(() => {});
 toast('已复制，去阿里消息中心粘贴');
 } catch (e) { toast(e.message);}
 };
-$('#m-prev').onclick = () => go(-1);
-$('#m-next').onclick = () => go(1);
-$('#m-edit').onclick = () => location.hash = '#/tpl/' + t.id + '/edit';
+const prevBtn = document.getElementById('m-prev');
+if (prevBtn) prevBtn.onclick = () => go(-1);
+const nextBtn = document.getElementById('m-next');
+if (nextBtn) nextBtn.onclick = () => go(1);
+const editBtn = document.getElementById('m-edit');
+if (editBtn) editBtn.onclick = () => location.hash = '#/tpl/' + t.id + '/edit';
 refresh();
 }
 
@@ -754,10 +804,12 @@ async function viewTplForm(id) {
     $('#f-scan').onclick = () => { syncLoc(); scanVars(); paint(); toast(`已扫描出 ${state.vars.length} 个变量`); };
     const delLang = $('#f-dellang');
     if (delLang) delLang.onclick = () => {
-      if (!confirm(`删除 ${state.activeLang} 语言版本？`)) return;
-      state.locales = state.locales.filter((x) => x.lang !== state.activeLang);
-      state.activeLang = state.locales[0].lang;
-      paint();
+      Modal.confirm({ title: '删除语言版本', body: `<div>确定删除 ${state.activeLang} 语言版本？</div>`, okText: '删除',
+        onOk: () => {
+          state.locales = state.locales.filter((x) => x.lang !== state.activeLang);
+          state.activeLang = state.locales[0].lang;
+          paint();
+        } });
     };
     app.querySelectorAll('[data-vi]').forEach((el) => {
       el.oninput = el.onchange = () => {
@@ -794,9 +846,11 @@ async function viewTplForm(id) {
     };
     const delBtn = $('#f-del');
     if (delBtn) delBtn.onclick = async () => {
-      if (!confirm('确定删除整个模板（含全部语言版本）？')) return;
-      try { await api('/api/reply-templates/' + id, { method: 'DELETE' }); toast('已删除'); location.hash = '#/tpl'; }
-      catch (e) { toast(e.message); }
+      Modal.confirm({ title: '删除模板', body: '<div>确定删除整个模板（含全部语言版本）？</div>', okText: '删除',
+        onOk: async () => {
+          try { await api('/api/reply-templates/' + id, { method: 'DELETE' }); toast('已删除'); location.hash = '#/tpl'; }
+          catch (e) { toast(e.message); }
+        } });
     };
   };
   if (!isEdit) scanVars();
