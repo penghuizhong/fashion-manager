@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>服装管理平台</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app sidebar-open" id="app-root">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <div class="brand">服装管理平台</div>
+      <button class="collapse-btn" id="collapse-btn" aria-label="收起导航">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+    </div>
+    <nav class="sidenav" id="sidenav">
+      <button class="navitem" data-nav="design">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 20l4-1 11-11a2.1 2.1 0 00-3-3L5 16l-1 4z"/></svg>
+        <span>设计台</span>
+        <span class="navtag">二期</span>
+      </button>
+      <button class="navitem" data-nav="sample">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M20 7H4a1 1 0 00-1 1v9a2 2 0 002 2h14a2 2 0 002-2V8a1 1 0 00-1-1z"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+        <span>样衣台</span>
+      </button>
+      <button class="navitem" data-nav="tpl">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+        <span>模板台</span>
+      </button>
+      <button class="navitem" data-nav="pattern">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>
+        <span>制版台</span>
+        <span class="navtag">二期</span>
+      </button>
+    </nav>
+    <div class="sidebar-footer">MVP v0.2.1</div>
+  </aside>
+  <div class="backdrop" id="backdrop"></div>
+  <button class="sidebar-expand-btn" id="expand-btn" aria-label="展开导航">
+    <svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+  </button>
+  <main class="main" id="main">
+    <div id="app"></div>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>
