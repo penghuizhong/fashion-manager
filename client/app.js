@@ -399,25 +399,38 @@ let tplCurrentIds = [];
 let tplModalKeyHandler = null;
 const tplLangKey = (id) => 'tpl_lang_' + id;
 const tplLastLangFor = (id, avail) => {
-const last = localStorage.getItem(tplLangKey(id));
-if (last && avail.includes(last)) return last;
-return avail.includes('EN')? 'EN': avail[0];
+  const last = localStorage.getItem(tplLangKey(id));
+  if (last && avail.includes(last)) return last;
+  return avail.includes('EN') ? 'EN' : avail[0];
 };
 const clearModalKey = () => {
-if (tplModalKeyHandler) { document.removeEventListener('keydown', tplModalKeyHandler); tplModalKeyHandler = null;}
+  if (tplModalKeyHandler) { document.removeEventListener('keydown', tplModalKeyHandler); tplModalKeyHandler = null; }
 };
-// A 预览：中文对照首句，变量替换为
+// A 预览：中文对照首句，变量替换为【中文名】
 const aPreview = (t) => {
-const first = (t.gloss_zh || '').split('\n').find((l) => l.trim()) || '';
-if (!first) return '';
-const varMap = {};
-(t.vars || []).forEach((v) => { varMap[v.name] = '';});
-return first.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, k) => varMap[k] || '');
+  const first = (t.gloss_zh || '').split('\n').find((l) => l.trim()) || '';
+  if (!first) return '';
+  const varMap = {};
+  (t.vars || []).forEach((v) => { varMap[v.name] = '【' + (v.label_zh || v.name) + '】'; });
+  return first.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (_, k) => varMap[k] || '');
+};
+let tplLastList = []; // 最近一次列表数据，供弹窗骨架屏显示真实标题
+let snippetCache = null; // 落款片段只拉一次（前端不改片段，缓存安全）
+let tplModalSeq = 0; // 弹窗序号：关闭/切换时作废在途请求
+const getSnippets = async () => {
+if (!snippetCache) snippetCache = await api('/api/snippets').catch(() => []);
+return snippetCache;
 };
 
 async function viewTplList(openId) {
 setNav('tpl');
 clearModalKey();
+// 列表已在 DOM（开/关弹窗、点上一条下一条时）：不重拉列表、不重绘，直接开弹窗或清弹窗
+if (document.getElementById('t-list')) {
+if (openId) openTplModal(openId);
+else { const r = document.getElementById('tpl-modal-root'); if (r) r.innerHTML = '';}
+return;
+}
 app.innerHTML = `${topbar('回复模板库')}
 <div class="page" style="padding-top:10px">
 <input id="t-q" class="searchbar" placeholder="搜索：标题 / 正文 / 使用说明" value="${esc(tplQuery)}" autocomplete="off">
@@ -427,7 +440,8 @@ app.innerHTML = `${topbar('回复模板库')}
 <div id="tpl-modal-root"></div>`;
 $('#t-new').onclick = () => location.hash = '#/tpl/new';
 const rowHtml = (t) => {
-tplCurrentIds.push(t.id);
+    if (!tplCurrentIds.includes(t.id)) tplCurrentIds.push(t.id); // 常用+分组重复展示，导航列表去重
+
 const q = t.note_zh || t.title;
 const a = aPreview(t);
 return `
@@ -439,6 +453,7 @@ ${t.usage_count > 0? `<span class="muted" style="font-size:11px;margin-left:auto
 </div>`;
 };
 const draw = (list) => {
+tplLastList = list;
 tplCurrentIds = [];
 const el = $('#t-list');
 if (!list.length) { el.innerHTML = `<div class="empty">没有符合的模板，换个关键词或新增一条</div>`; return;}
@@ -470,30 +485,60 @@ await load();
 if (openId) openTplModal(openId);
 }
 
-/* ---------- 弹窗：填空 + 话术框（高亮已填值）+ 语言下拉 + 翻译双向切换 + 复制 ---------- */
+/* ---------- 弹窗：骨架屏秒开 + 并行取数 + 上滑动画 ---------- */
 async function openTplModal(id) {
 const root = $('#tpl-modal-root');
 if (!root) return;
 clearModalKey();
-root.innerHTML = `<div class="modal-backdrop"><div class="modal-sheet"><div class="empty">加载中…</div></div></div>`;
-let t;
-try { t = await api('/api/reply-templates/' + id);}
-catch (e) { root.innerHTML = ''; toast(e.message); location.hash = '#/tpl'; return;}
+const seq = ++tplModalSeq;
+const hint = (tplLastList || []).find((t) => t.id === id);
+const close = () => { tplModalSeq++; if (location.hash!== '#/tpl') location.hash = '#/tpl';};
+const bindClose = () => { const b = $('#m-close'); if (b) b.onclick = close;};
+// 骨架屏：同步画壳，点下即有反馈，不等网络
+const skeleton = `
+<div class="modal-head">
+<span class="modal-title">${hint? esc(hint.title): '加载中…'}</span>
+<button class="modal-x" id="m-close" aria-label="关闭">×</button>
+</div>
+<div class="modal-body"><div class="skel-box"></div><div class="skel-line"></div><div class="skel-line" style="width:60%"></div></div>`;
+const sheet = root.querySelector('#m-sheet');
+if (!sheet) {
+// 首次打开：建壳并播上滑动画
+root.innerHTML = `<div class="modal-backdrop" id="m-bg"><div class="modal-sheet" id="m-sheet">${skeleton}</div></div>`;
+$('#m-bg').onclick = (e) => { if (e.target.id === 'm-bg') close();};
+} else {
+// 上一条/下一条切换：复用壳，只换骨架，不重播动画
+sheet.innerHTML = skeleton;
+}
+bindClose();
+tplModalKeyHandler = (e) => { if (e.key === 'Escape') close();};
+document.addEventListener('keydown', tplModalKeyHandler);
+// 详情 + 片段并行拉（原先串行两次请求）
+let t, snippets;
+try {
+[t, snippets] = await Promise.all([api('/api/reply-templates/' + id), getSnippets()]);
+} catch (e) {
+if (seq!== tplModalSeq) return;
+root.innerHTML = ''; toast(e.message); location.hash = '#/tpl'; return;
+}
+if (seq!== tplModalSeq) return; // 期间已关闭或已切到另一条
+if (!document.getElementById('tpl-modal-root')) return;
 if (!t.locales.length) {
 root.innerHTML = '';
 toast('该模板没有任何语言版本，请编辑补充');
 location.hash = '#/tpl/' + t.id + '/edit';
 return;
 }
-let snippets = [];
-try { snippets = await api('/api/snippets');} catch {}
 const avail = t.locales.map((l) => l.lang);
 const state = { lang: tplLastLangFor(t.id, avail), view: 'orig', slots: {}};
 const idx = () => tplCurrentIds.indexOf(t.id);
 const go = (delta) => {
 const i = idx() + delta;
 if (i < 0 || i >= tplCurrentIds.length) return;
-location.hash = '#/tpl/' + tplCurrentIds[i];
+const nid = tplCurrentIds[i];
+// 换地址但不进 history、不触发路由重绘列表；返回键仍回到列表
+history.replaceState(null, '', '#/tpl/' + nid);
+openTplModal(nid);
 };
 const expandLocal = (body, lang) =>
 body.replace(/\{\{\s*snippet:([a-z_]+)\s*\}\}/g, (_, k) => {
@@ -517,11 +562,9 @@ if (val) return `<mark class="slotval">${esc(val)}</mark>`;
 return `<span class="slotempty"></span>`;
 }).join('');
 };
-const close = () => { if (location.hash!== '#/tpl') location.hash = '#/tpl';};
 
-root.innerHTML = `
-<div class="modal-backdrop" id="m-bg">
-<div class="modal-sheet" id="m-sheet">
+// 填内容：只换 sheet 内部，不重建 backdrop、不重播动画
+$('#m-sheet').innerHTML = `
 <div class="modal-head">
 <span class="modal-title">${esc(locOf().title)}</span>
 <button class="modal-x" id="m-close" aria-label="关闭">×</button>
@@ -553,8 +596,6 @@ placeholder="${v.sample? '如：' + esc(v.sample): '填写' + esc(v.label_zh || 
 <button class="btn ghost" id="m-next" ${idx() >= tplCurrentIds.length - 1? 'disabled': ''}>下一条 →</button>
 <button class="btn ghost" id="m-edit">编辑</button>
 </div>
-</div>
-</div>
 </div>`;
 
 const refresh = () => {
@@ -569,6 +610,7 @@ $('#m-miss').textContent = zhView? '当前是中文对照，切回原文再复�
 : (m.length? '还差：' + m.map((v) => v.label_zh || v.name).join('、'): '');
 $('#m-sheet').querySelector('.modal-title').textContent = locOf().title;
 };
+bindClose();
 root.querySelectorAll('[data-slot]').forEach((i) => {
 i.oninput = () => { state.slots[i.dataset.slot] = i.value; refresh();};
 });
@@ -591,13 +633,9 @@ api(`/api/reply-templates/${t.id}/use`, { method: 'POST'}).catch(() => {});
 toast('已复制，去阿里消息中心粘贴');
 } catch (e) { toast(e.message);}
 };
-$('#m-close').onclick = close;
-$('#m-bg').onclick = (e) => { if (e.target.id === 'm-bg') close();};
 $('#m-prev').onclick = () => go(-1);
 $('#m-next').onclick = () => go(1);
 $('#m-edit').onclick = () => location.hash = '#/tpl/' + t.id + '/edit';
-tplModalKeyHandler = (e) => { if (e.key === 'Escape') close();};
-document.addEventListener('keydown', tplModalKeyHandler);
 refresh();
 }
 
