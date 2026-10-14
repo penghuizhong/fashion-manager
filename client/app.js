@@ -399,12 +399,6 @@ let tplQuery = '';
 
 /* ---------- 列表：QA 模式（Q 场景句 + A 中文首句预览），点卡开弹窗 ---------- */
 let tplCurrentIds = [];
-const tplLangKey = (id) => 'tpl_lang_' + id;
-const tplLastLangFor = (id, avail) => {
-  const last = localStorage.getItem(tplLangKey(id));
-  if (last && avail.includes(last)) return last;
-  return avail.includes('EN') ? 'EN' : avail[0];
-};
 // A 预览：中文对照首句，变量替换为【中文名】
 const aPreview = (t) => {
   const first = (t.gloss_zh || '').split('\n').find((l) => l.trim()) || '';
@@ -509,8 +503,7 @@ return `
 <div class="card tappable qa-card" data-id="${t.id}">
 <div class="qa-line"><span class="qa-mark q">Q</span><span class="qa-qtext">${esc(q)}</span></div>
 ${a? `<div class="qa-line"><span class="qa-mark a">A</span><span class="qa-atext">${esc(a)}</span></div>`: ''}
-<div class="rowline mt4"><span class="muted" style="font-size:11px">${t.langs.join(' · ')}</span>
-${t.usage_count > 0? `<span class="muted" style="font-size:11px;margin-left:auto">用过${t.usage_count}</span>`: ''}</div>
+${t.usage_count > 0? `<div class="rowline mt4"><span class="muted" style="font-size:11px;margin-left:auto">用过${t.usage_count}</span></div>`: ''}
 </div>`;
 };
 const draw = (data) => {
@@ -566,8 +559,7 @@ history.replaceState(null, '', '#/tpl');
 return;
 }
 tplModalId = id;
-const avail = t.locales.map((l) => l.lang);
-const state = { lang: tplLastLangFor(t.id, avail), view: 'orig', slots: {}};
+const state = { slots: {} };
 const idx = () => tplCurrentIds.indexOf(t.id);
 const go = (delta) => {
 const i = idx() + delta;
@@ -583,25 +575,23 @@ const s = snippetCache.find((x) => x.key === k && x.lang === lang)
 || snippetCache.find((x) => x.key === k && x.lang === 'EN');
 return s? s.body: '';
 });
-const locOf = () => t.locales.find((l) => l.lang === state.lang) || t.locales[0];
 const missing = () => (t.vars || [])
 .filter((v) => v.required &&!String(state.slots[v.name] || '').trim());
-// 话术框 HTML：已填值高亮，未填显示
+// 话术框 HTML：已填值高亮，未填显示【中文名】
 const boxHTML = () => {
-const raw = state.view === 'zh'? (t.gloss_zh || ''): locOf().body;
-const expanded = expandLocal(raw, state.view === 'zh'? 'EN': locOf().lang);
+const raw = t.gloss_zh || '（暂无中文对照，请到编辑页补充中文对照）';
+const expanded = expandLocal(raw, 'ZH');
 return expanded.split(/(\{\{\s*[a-z_]+\s*\}\})/g).map((p) => {
 const m = p.match(/^\{\{\s*([a-z_]+)\s*\}\}$/);
 if (!m) return esc(p);
 const v = (t.vars || []).find((x) => x.name === m[1]);
 const val = state.slots[m[1]];
 if (val) return `<mark class="slotval">${esc(val)}</mark>`;
-return `<span class="slotempty"></span>`;
+return `<span class="slotempty">【${esc(v ? (v.label_zh || m[1]) : m[1])}】</span>`;
 }).join('');
 };
 // 弹窗体（Modal 组件管外壳与标题栏，这里只给 body）
 const bodyHTML = () => `
-${t.note_zh? `<div class="muted" style="font-size:12px">${esc(t.note_zh)}</div>`: ''}
 ${(t.vars || []).length? `<div class="mt8" id="m-slots">${t.vars.map((v) => `
 <label class="fl" style="margin-top:8px">${esc(v.label_zh || v.name)}${v.required? ' <span style="color:var(--danger)">*</span>': ''}
 <span class="muted" style="font-weight:400"> · ${VAR_TYPE_ZH[v.type] || '文本'}</span></label>
@@ -613,16 +603,9 @@ placeholder="${v.sample? '如：' + esc(v.sample): '填写' + esc(v.label_zh || 
 }`).join('')}</div>`: ''}
 <div class="talkbox" id="m-box"></div>
 <div class="modal-controls">
-<div class="ctrlrow">
-${avail.length > 1
-? `<select id="m-lang">${avail.map((l) =>
-`<option value="${l}" ${l === state.lang? 'selected': ''}>${l} ${TPL_LANG[l]}</option>`).join('')}</select>`
-: `<span class="muted" style="font-size:13px;padding:8px 0">${avail[0]} ${TPL_LANG[avail[0]]}</span>`}
-<button class="btn ghost" id="m-flip"></button>
-</div>
 <button class="btn" id="m-copy"></button>
 <div class="miss" id="m-miss"></div>
-<div class="muted" style="text-align:center;font-size:11px">红线：必填项没填时不许复制发出 · 中文对照仅供理解</div>
+<div class="muted" style="text-align:center;font-size:11px">红线：必填项没填时不许复制 · 粘贴到阿里消息中心，平台自动翻译</div>
 </div>
 <div class="btnrow mt8">
 <button class="btn ghost" id="m-prev" ${idx() <= 0? 'disabled': ''}>← 上一条</button>
@@ -636,44 +619,30 @@ tplModalId = null; tplModalPushed = false;
 if (wasPushed) history.back();
 else history.replaceState(null, '', '#/tpl');
 };
-Modal.open({ title: locOf().title, body: bodyHTML(), onClose});
+Modal.open({ title: t.note_zh || t.title, body: bodyHTML(), onClose});
 
 const refresh = () => {
 const box = document.getElementById('m-box');
 if (box) box.innerHTML = boxHTML();
 const m = missing();
-const zhView = state.view === 'zh';
-const flip = document.getElementById('m-flip');
-if (flip) flip.textContent = zhView? '看原文': '看中文对照';
 const copyBtn = document.getElementById('m-copy');
 if (copyBtn) {
-copyBtn.textContent = zhView? '中文对照不可复制': `复制${TPL_LANG[state.lang]}文本`;
-copyBtn.classList.toggle('dim', zhView || m.length > 0);
+copyBtn.textContent = '复制文本';
+copyBtn.classList.toggle('dim', m.length > 0);
 }
 const miss = document.getElementById('m-miss');
-if (miss) miss.textContent = zhView? '当前是中文对照，切回原文再复制'
-: (m.length? '还差：' + m.map((v) => v.label_zh || v.name).join('、'): '');
-Modal.setTitle(locOf().title);
+if (miss) miss.textContent = m.length? '还差：' + m.map((v) => v.label_zh || v.name).join('、'): '';
 };
 document.querySelectorAll('#m-body [data-slot]').forEach((i) => {
 i.oninput = () => { state.slots[i.dataset.slot] = i.value; refresh();};
 });
-const langSel = document.getElementById('m-lang');
-if (langSel) langSel.onchange = (e) => {
-state.lang = e.target.value;
-localStorage.setItem(tplLangKey(t.id), state.lang);
-refresh();
-};
-const flipBtn = document.getElementById('m-flip');
-if (flipBtn) flipBtn.onclick = () => { state.view = state.view === 'orig'? 'zh': 'orig'; refresh();};
 const copyBtn = document.getElementById('m-copy');
 if (copyBtn) copyBtn.onclick = async () => {
-if (state.view === 'zh') return toast('中文对照仅供理解，切回原文再复制');
 const m = missing();
 if (m.length) return toast(`红线：${m.map((v) => v.label_zh || v.name).join('、')}不能为空，填好再复制`);
 try {
 const r = await api(`/api/reply-templates/${t.id}/render`, {
-method: 'POST', body: JSON.stringify({ lang: state.lang, slots: state.slots}),
+method: 'POST', body: JSON.stringify({ lang: 'ZH', slots: state.slots}),
 });
 await navigator.clipboard.writeText(r.text);
 api(`/api/reply-templates/${t.id}/use`, { method: 'POST'}).catch(() => {});
