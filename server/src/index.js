@@ -26,7 +26,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.3.1',
+  version: '0.4.0',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -328,14 +328,16 @@ app.get('/api/reply-templates', (req, res) => {
   sql += ' ORDER BY t.usage_count DESC, t.id';
   const rows = db.prepare(sql).all(...args);
   const locStmt = db.prepare('SELECT lang,title FROM template_locales WHERE template_id=? ORDER BY lang');
+  const varStmt = db.prepare('SELECT name,label_zh FROM template_vars WHERE template_id=? ORDER BY sort,id');
   res.json(rows.map((t) => {
     const locales = locStmt.all(t.id);
     const en = locales.find((l) => l.lang === 'EN');
     return {
       id: t.id, key: t.key, scene: t.scene, category: t.category,
-      note_zh: t.note_zh, usage_count: t.usage_count, origin: t.origin,
+      note_zh: t.note_zh, gloss_zh: t.gloss_zh || '', usage_count: t.usage_count, origin: t.origin,
       langs: locales.map((l) => l.lang),
       title: (en || locales[0] || {}).title || t.key,
+      vars: varStmt.all(t.id),
     };
   }));
 });

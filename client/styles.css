@@ -155,3 +155,33 @@ label.fl{display:block;font-size:12px;color:var(--muted);margin:10px 0 5px}
 .varrow code{font-size:12px}
 details.card summary{cursor:pointer;list-style:none}
 details.card summary::-webkit-details-marker{display:none}
+
+/* ---------- 模板台 v0.4.0：QA 列表 + 弹窗 ---------- */
+.qa-line{display:flex;gap:8px;align-items:flex-start;margin-top:6px}
+.qa-line:first-child{margin-top:0}
+.qa-mark{flex:0 0 auto;width:18px;height:18px;border-radius:50%;display:flex;
+  align-items:center;justify-content:center;font-size:11px;font-weight:700;margin-top:1px}
+.qa-mark.q{background:var(--accent);color:var(--on-accent)}
+.qa-mark.a{background:var(--surface2);color:var(--muted);border:1px solid var(--border)}
+.qa-qtext{font-weight:700;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.qa-atext{color:var(--muted);font-size:13px;display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:60;
+  display:flex;align-items:flex-end;justify-content:center}
+.modal-sheet{background:var(--surface);width:100%;max-width:640px;max-height:88vh;
+  border-radius:16px 16px 0 0;display:flex;flex-direction:column;overflow:hidden}
+.modal-head{display:flex;align-items:center;gap:8px;padding:12px 14px;
+  border-bottom:1px solid var(--border)}
+.modal-title{font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modal-x{width:30px;height:30px;flex-shrink:0;border:none;border-radius:50%;
+  background:var(--surface2);color:var(--text);font-size:20px;line-height:1}
+.modal-body{overflow-y:auto;padding:12px 14px calc(16px + env(safe-area-inset-bottom))}
+.talkbox{white-space:pre-wrap;background:var(--surface2);border-radius:10px;
+  padding:12px;font-size:13px;margin-top:10px;max-height:320px;overflow-y:auto}
+mark.slotval{background:rgba(250,200,0,.35);color:inherit;border-radius:3px;padding:0 2px}
+.slotempty{color:var(--danger);font-weight:700}
+.modal-controls{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.ctrlrow{display:flex;gap:8px}
+.ctrlrow select{flex:1}
+.ctrlrow .btn{flex:1}

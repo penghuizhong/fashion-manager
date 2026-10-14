@@ -1,1 +1,1 @@
-{"dependencies":{"better-sqlite3":"^12.11.1","express":"^4.21.2"},"name":"garment-mgmt-server","private":true,"scripts":{"start":"node src/index.js"},"type":"module","version":"0.3.1"}
+{"dependencies":{"better-sqlite3":"^12.11.1","express":"^4.21.2"},"name":"garment-mgmt-server","private":true,"scripts":{"start":"node src/index.js"},"type":"module","version":"0.4.0"}
