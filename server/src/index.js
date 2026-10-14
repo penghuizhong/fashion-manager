@@ -26,7 +26,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.4.2',
+  version: '0.5.0',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -327,9 +327,9 @@ app.get('/api/reply-templates', (req, res) => {
   }
   sql += ' ORDER BY t.usage_count DESC, t.id';
   const rows = db.prepare(sql).all(...args);
-  const locStmt = db.prepare('SELECT lang,title FROM template_locales WHERE template_id=? ORDER BY lang');
+  const locStmt = db.prepare('SELECT lang,title,body FROM template_locales WHERE template_id=? ORDER BY lang');
   const varStmt = db.prepare('SELECT name,label_zh FROM template_vars WHERE template_id=? ORDER BY sort,id');
-  res.json(rows.map((t) => {
+  const templates = rows.map((t) => {
     const locales = locStmt.all(t.id);
     const en = locales.find((l) => l.lang === 'EN');
     return {
@@ -338,8 +338,13 @@ app.get('/api/reply-templates', (req, res) => {
       langs: locales.map((l) => l.lang),
       title: (en || locales[0] || {}).title || t.key,
       vars: varStmt.all(t.id),
+      // 弹窗零等待：列表一次带齐各语言正文，点卡直接渲染，不再拉详情
+      locales,
     };
-  }));
+  });
+  // 同批带上落款片段：模板页所需数据一次到位
+  const snippets = db.prepare('SELECT key,lang,body FROM snippets ORDER BY lang,key').all();
+  res.json({ templates, snippets });
 });
 
 app.get('/api/reply-templates/:id', (req, res) => {

@@ -50,3 +50,9 @@ AI 改款出图（POST /api/redesign 三步流水线，见方案）、公式计�
 - index.html 本身不缓存（max-age=0），但 app.js/styles.css 经 Cloudflare 会被缓存 4 小时。
 - 因此 index.html 里的静态资源 URL 必须带版本号 `?v=<当前版本>`（如 `/app.js?v=0.4.1`），每次发版同步更新。
 - 否则用户手机会一直跑旧 JS，看起来"新版跟旧版一点没变"。
+
+## 弹窗约定（2026-10-14，v0.5.0）
+- 全局弹窗组件：client/app.js 里的 `Modal`（open/setTitle/setBody/close/clear/confirm）。
+  项目内凡是用到弹窗，一律用它，不许各写一套；弹窗挂 document.body，不受 app.innerHTML 重绘影响。
+- 模板弹窗是纯弹窗：点卡 → pushState 记地址 + 同步开弹窗（数据随列表一次返回，零等待）；
+  关闭 → history.back()；浏览器前进/后退 → popstate 同步开/关。不走 hash 路由重绘列表。

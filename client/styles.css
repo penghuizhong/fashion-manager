@@ -190,8 +190,7 @@ mark.slotval{background:rgba(250,200,0,.35);color:inherit;border-radius:3px;padd
 .ctrlrow{display:flex;gap:8px}
 .ctrlrow select{flex:1}
 .ctrlrow .btn{flex:1}
-.skel-box{height:120px;border-radius:10px;background:var(--surface2);
-  animation:skel-pulse 1s ease-in-out infinite}
-.skel-line{height:14px;margin-top:10px;border-radius:7px;background:var(--surface2);
-  animation:skel-pulse 1s ease-in-out infinite}
-@keyframes skel-pulse{0%,100%{opacity:.5}50%{opacity:1}}
+
+.modal-foot{display:flex;gap:8px;justify-content:flex-end;padding-top:14px;
+  border-top:1px solid var(--border);margin-top:14px}
+.modal-foot .btn{min-width:80px}
