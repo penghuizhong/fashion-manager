@@ -40,8 +40,8 @@ function route() {
   const parts = h.slice(2).split('/');
   // 弹窗是纯 DOM（挂 body），路由切换页面时必须手动清掉；模板弹窗地址本身除外
   const isTplModal = parts[0] === 'tpl' && !!parts[1]; // '#/tpl/:id' / '#/tpl/:id/edit' / '#/tpl/new' 都是弹窗地址
-  if (!isTplModal && (tplModalId !== null || tplEditId !== null)) {
-    tplModalId = null; tplModalPushed = false; tplEditId = null; tplEditPushed = false; Modal.clear();
+  if (!isTplModal && tplModalId !== null) {
+    tplModalId = null; tplModalMode = 'view'; tplModalPushed = false; Modal.clear();
   }
   if (parts[0] === '' ) return viewList();
   if (parts[0] === 'new') return viewNew();
@@ -49,8 +49,8 @@ function route() {
   if (parts[0] === 'g' && parts[2] === 'sample') return viewSampleEdit(parts[1]);
   if (parts[0] === 'g' && parts[2] === 'version') return viewNewVersion(parts[1]);
   if (parts[0] === 'q' && parts[1]) return viewQuote(parts[1]);
-  if (parts[0] === 'tpl' && parts[1] === 'new') { if (tplEditId !== 'new') openTplEditModal(null); return; }
-  if (parts[0] === 'tpl' && parts[2] === 'edit') { const eid = Number(parts[1]); if (tplEditId !== eid) openTplEditModal(eid); return; }
+  if (parts[0] === 'tpl' && parts[1] === 'new') { if (!(tplModalId === 'new' && tplModalMode === 'edit')) openTplModal(null, 'edit'); return; }
+  if (parts[0] === 'tpl' && parts[2] === 'edit') { const eid = Number(parts[1]); if (!(tplModalId === eid && tplModalMode === 'edit')) openTplModal(eid, 'edit'); return; }
   if (parts[0] === 'tpl' && parts[1]) return viewTplList(parts[1]);
   if (parts[0] === 'tpl') return viewTplList();
   if (parts[0] === 'design') return viewStub('设计台', '二期：一键改款出图、设计灵感库、样衣参考尺寸。');
@@ -421,20 +421,20 @@ const aPreview = (t) => {
 * 弹窗挂在 document.body（Portal 式），不受 app.innerHTML 重绘影响。
 */
 const Modal = (() => {
-let onCloseCb = null, keyHandler = null;
+let onCloseCb = null, beforeCloseCb = null, keyHandler = null;
 const isOpen = () =>!!document.querySelector('#global-modal-root .modal-backdrop');
 const rootEl = () => {
 let r = document.getElementById('global-modal-root');
 if (!r) { r = document.createElement('div'); r.id = 'global-modal-root'; document.body.appendChild(r);}
 return r;
 };
-function open({ title = '', body = '', onClose = null} = {}) {
-if (isOpen()) { setTitle(title); setBody(body); onCloseCb = onClose; return; }
+function open({ title = '', body = '', onClose = null, onBeforeClose = null} = {}) {
+if (isOpen()) { setTitle(title); setBody(body); onCloseCb = onClose; beforeCloseCb = onBeforeClose; return; }
 rootEl().innerHTML = `<div class="modal-backdrop" id="m-bg"><div class="modal-sheet" id="m-sheet">
 <div class="modal-head"><span class="modal-title">${esc(title)}</span>
 <button class="modal-x" id="m-close" aria-label="关闭">×</button></div>
 <div class="modal-body" id="m-body">${body}</div></div></div>`;
-onCloseCb = onClose;
+onCloseCb = onClose; beforeCloseCb = onBeforeClose;
 const b = document.getElementById('m-close');
 if (b) b.onclick = close;
 const bg = document.getElementById('m-bg');
@@ -445,11 +445,14 @@ document.addEventListener('keydown', keyHandler);
 }
 function setTitle(t) { const el = document.querySelector('#m-sheet .modal-title'); if (el) el.textContent = t;}
 function setBody(html) { const el = document.getElementById('m-body'); if (el) el.innerHTML = html;}
-function close() { const cb = onCloseCb; clear(); if (cb) cb();}
+function close() {
+// onBeforeClose 返回 false = 调用方接管关闭（如编辑态原地切回使用模式），不清壳
+if (beforeCloseCb && beforeCloseCb() === false) return;
+const cb = onCloseCb; clear(); if (cb) cb();}
 function clear() {
 const r = document.getElementById('global-modal-root');
 if (r) r.innerHTML = '';
-onCloseCb = null;
+onCloseCb = null; beforeCloseCb = null;
 if (keyHandler) { document.removeEventListener('keydown', keyHandler); keyHandler = null;}
 }
 function confirm({ title = '确认', body = '', okText = '确定', onOk = null} = {}) {
@@ -467,7 +470,8 @@ return { open, setTitle, setBody, close, clear, isOpen, confirm};
 /* ---------- 列表：QA 模式（Q 场景句 + A 中文首句预览），点卡开纯弹窗 ---------- */
 let tplLastList = []; // 列表数据（含各语言正文），弹窗直接取用，零请求
 let snippetCache = []; // 落款片段，随列表一次返回
-let tplModalId = null; // 当前打开的模板 id（number），null = 未打开
+let tplModalId = null; // 当前弹窗的模板 id（number | 'new'），null = 未打开
+let tplModalMode = 'view'; // 当前弹窗模式：'view' 使用 / 'edit' 编辑（同壳双模式）
 let tplModalPushed = false;// 本次弹窗是否 push 过历史
 
 // 模板弹窗历史同步：浏览器前进/后退时开/关弹窗（不走路由重绘）
@@ -475,16 +479,15 @@ function syncTplModalFromHistory() {
 const h = location.hash || '#/';
 const parts = h.slice(2).split('/');
 if (parts[0] === 'tpl' && parts[1] === 'new') {
-if (tplEditId !== 'new') { tplEditPushed = true; openTplEditModal(null); }
+if (!(tplModalId === 'new' && tplModalMode === 'edit')) { tplModalPushed = true; openTplModal(null, 'edit'); }
 } else if (parts[0] === 'tpl' && parts[1] && parts[2] === 'edit') {
 const id = Number(parts[1]);
-if (tplEditId !== id) { tplEditPushed = true; openTplEditModal(id); }
+if (!(tplModalId === id && tplModalMode === 'edit')) { tplModalPushed = true; openTplModal(id, 'edit'); }
 } else if (parts[0] === 'tpl' && parts[1]) {
 const id = Number(parts[1]);
-if (tplModalId!== id) { tplModalPushed = true; openTplModal(id); }
-tplEditId = null;
-} else if (tplModalId!== null || tplEditId !== null) {
-tplModalPushed = false; tplModalId = null; tplEditId = null; tplEditPushed = false; Modal.clear();
+if (!(tplModalId === id && tplModalMode === 'view')) { tplModalPushed = true; openTplModal(id, 'view'); }
+} else if (tplModalId !== null) {
+tplModalPushed = false; tplModalId = null; tplModalMode = 'view'; Modal.clear();
 }
 }
 window.addEventListener('popstate', syncTplModalFromHistory);
@@ -492,7 +495,7 @@ window.addEventListener('popstate', syncTplModalFromHistory);
 async function viewTplList(openId, force) {
 setNav('tpl');
 if (document.getElementById('t-list') && !force) {
-if (openId && tplModalId!== Number(openId)) openTplModal(openId);
+if (openId && !(tplModalId === Number(openId) && tplModalMode === 'view')) openTplModal(Number(openId), 'view');
 return;
 }
 app.innerHTML = `${topbar('回复模板库')}
@@ -502,9 +505,9 @@ app.innerHTML = `${topbar('回复模板库')}
 <div id="t-list" class="mt8"><div class="empty">加载中…</div></div>
 </div>`;
 $('#t-new').onclick = () => {
-history.pushState({ tplEdit: 'new' }, '', '#/tpl/new');
-tplEditPushed = true;
-openTplEditModal(null);
+history.pushState({ tplModal: 'new', tplMode: 'edit' }, '', '#/tpl/new');
+tplModalPushed = true;
+openTplModal(null, 'edit');
 };
 const rowHtml = (t) => {
 if (!tplCurrentIds.includes(t.id)) tplCurrentIds.push(t.id); // 常用+分组重复展示，导航列表去重
@@ -559,27 +562,44 @@ if (openId) openTplModal(openId);
 }
 
 /* ---------- 模板弹窗：同步渲染（数据已在列表里，零等待） ---------- */
-function openTplModal(id) {
-id = Number(id);
-const t = (tplLastList || []).find((x) => x.id === id);
+/* ---------- 话术卡弹窗：使用 / 编辑双模式（同壳复用，编辑不再是新弹窗 UI） ---------- */
+async function openTplModal(id, mode = 'view') {
+const isNew = id === null || id === undefined;
+const isEdit = mode === 'edit';
+// 保证列表页在弹窗底下（直链进入时）
+if (!document.getElementById('t-list')) await viewTplList();
+let t = null;
+if (!isNew) {
+t = (tplLastList || []).find((x) => x.id === Number(id));
 if (!t) {
-// 本地没数据（历史导航回来时列表未加载）：先渲染列表，加载后自动开弹窗
-if (!document.getElementById('t-list')) { viewTplList(id); return;}
-toast('模板不存在');
-history.replaceState(null, '', '#/tpl');
-return;
+try { t = await api('/api/reply-templates/' + id);}
+catch (e) { toast('模板不存在'); history.replaceState(null, '', '#/tpl'); return;}
 }
-tplModalId = id;
-tplEditId = null; // 模板弹窗已换上，编辑态清掉（否则返回时守卫误判已开）
-const state = { slots: {} };
-const idx = () => tplCurrentIds.indexOf(t.id);
+}
+const tid = isNew? 'new': Number(t.id);
+tplModalId = tid; tplModalMode = mode;
+
+/* ---- 使用模式状态 ---- */
+const viewState = { slots: {}};
+/* ---- 编辑模式状态 ---- */
+const editState = {
+scene: t? t.scene: 'first',
+category: t? t.category: '通用',
+note_zh: t? t.note_zh: '',
+gloss_zh: t? (t.gloss_zh || ''): '',
+source_buyer: t? t.source_buyer: '',
+vars: t? t.vars.map((v) => ({...v})): [],
+};
+
+/* ---- 使用模式 ---- */
+const idx = () => tplCurrentIds.indexOf(t? t.id: -1);
 const go = (delta) => {
 const i = idx() + delta;
 if (i < 0 || i >= tplCurrentIds.length) return;
 const nid = tplCurrentIds[i];
 // 换地址但不进 history、不触发路由；返回键仍回到列表
 history.replaceState({ tplModal: nid}, '', '#/tpl/' + nid);
-openTplModal(nid);
+openTplModal(nid, 'view');
 };
 const expandLocal = (body, lang) =>
 body.replace(/\{\{\s*snippet:([a-z_]+)\s*\}\}/g, (_, k) => {
@@ -588,8 +608,8 @@ const s = snippetCache.find((x) => x.key === k && x.lang === lang)
 return s? s.body: '';
 });
 const missing = () => (t.vars || [])
-.filter((v) => v.required &&!String(state.slots[v.name] || '').trim());
-// 话术框 HTML：已填值高亮，未填显示【中文名】
+.filter((v) => v.required &&!String(viewState.slots[v.name] || '').trim());
+// 话术框 HTML：已填值高亮，未填显示
 const boxHTML = () => {
 const raw = t.gloss_zh || '（暂无中文对照，请到编辑页补充中文对照）';
 const expanded = expandLocal(raw, 'ZH');
@@ -597,19 +617,18 @@ return expanded.split(/(\{\{\s*[a-z_]+\s*\}\})/g).map((p) => {
 const m = p.match(/^\{\{\s*([a-z_]+)\s*\}\}$/);
 if (!m) return esc(p);
 const v = (t.vars || []).find((x) => x.name === m[1]);
-const val = state.slots[m[1]];
+const val = viewState.slots[m[1]];
 if (val) return `<mark class="slotval">${esc(val)}</mark>`;
-return `<span class="slotempty">【${esc(v ? (v.label_zh || m[1]) : m[1])}】</span>`;
+return `<span class="slotempty"></span>`;
 }).join('');
 };
-// 弹窗体（Modal 组件管外壳与标题栏，这里只给 body）
-const bodyHTML = () => `
+const viewBodyHTML = () => `
 ${(t.vars || []).length? `<div class="mt8" id="m-slots">${t.vars.map((v) => `
 <label class="fl" style="margin-top:8px">${esc(v.label_zh || v.name)}${v.required? ' <span style="color:var(--danger)">*</span>': ''}
 <span class="muted" style="font-weight:400"> · ${VAR_TYPE_ZH[v.type] || '文本'}</span></label>
 ${v.type === 'date'
-? `<input type="date" data-slot="${esc(v.name)}" value="${esc(state.slots[v.name] || '')}">`
-: `<input data-slot="${esc(v.name)}" value="${esc(state.slots[v.name] || '')}"
+? `<input type="date" data-slot="${esc(v.name)}" value="${esc(viewState.slots[v.name] || '')}">`
+: `<input data-slot="${esc(v.name)}" value="${esc(viewState.slots[v.name] || '')}"
 ${v.type === 'number'? 'inputmode="decimal"': ''}
 placeholder="${v.sample? '如：' + esc(v.sample): '填写' + esc(v.label_zh || v.name)}">`
 }`).join('')}</div>`: ''}
@@ -624,222 +643,197 @@ placeholder="${v.sample? '如：' + esc(v.sample): '填写' + esc(v.label_zh || 
 <button class="btn ghost" id="m-next" ${idx() >= tplCurrentIds.length - 1? 'disabled': ''}>下一条 →</button>
 <button class="btn ghost" id="m-edit">编辑</button>
 </div>`;
+
+/* ---- 编辑模式（复用使用模式的布局骨架：变量区→话术区→按钮区） ---- */
+const scanVars = () => {
+const found = [];
+const re = /\{\{\s*([a-z_]+)\s*\}\}/g; let m;
+while ((m = re.exec(editState.gloss_zh))) if (!found.includes(m[1])) found.push(m[1]);
+found.forEach((name) => {
+if (!editState.vars.some((v) => v.name === name)) {
+editState.vars.push({ name, type: name === 'price' || name === 'quantity'? 'number': 'text',
+required: name === 'price' || name === 'lead_time'? 1: 0, label_zh: name, sample: ''});
+}
+});
+editState.vars = editState.vars.filter((v) => found.includes(v.name));
+};
+const editBodyHTML = () => `
+<div class="mt8">
+<div class="frow">
+<div class="grow"><label class="fl" style="margin-top:0">场景</label>
+<select id="f-scene">${Object.entries(TPL_SCENE).map(([k, v]) =>
+`<option value="${k}" ${editState.scene === k? 'selected': ''}>${v}</option>`).join('')}</select></div>
+<div class="grow"><label class="fl" style="margin-top:0">分类</label>
+<input id="f-cat" value="${esc(editState.category)}" placeholder="如：通用/西装/晚礼服"></div>
+</div>
+<label class="fl">使用说明（什么时候用）</label>
+<input id="f-note" value="${esc(editState.note_zh)}" placeholder="一句话中文说明">
+<label class="fl">变量管理（${editState.vars.length} 个）</label>
+<div id="f-vars">${editState.vars.map((v, i) => `
+<div class="varrow">
+<div class="rowline"><code style="font-weight:700">{{${esc(v.name)}}}</code>
+<label style="font-size:12px;display:flex;align-items:center;gap:4px">
+<input type="checkbox" data-vi="${i}" data-k="required" ${v.required? 'checked': ''} style="width:auto"> 必填</label>
+<button class="chip" data-vdel="${i}">删除</button></div>
+<div class="frow mt4">
+<div class="grow"><input data-vi="${i}" data-k="label_zh" value="${esc(v.label_zh)}" placeholder="中文名"></div>
+<div class="grow"><select data-vi="${i}" data-k="type">${VAR_TYPES.map((tp) =>
+`<option value="${tp}" ${v.type === tp? 'selected': ''}>${VAR_TYPE_ZH[tp]}</option>`).join('')}</select></div>
+</div>
+<input class="mt4" data-vi="${i}" data-k="sample" value="${esc(v.sample)}" placeholder="示例值（输入框提示用），如 175">
+</div>`).join('') || '<div class="muted">暂无变量，点"从话术扫描变量"</div>'}
+</div>
+<div class="btnrow mt8"><button class="btn ghost" id="f-scan">从话术扫描变量</button></div>
+<label class="fl">中文话术</label>
+<div class="seg" style="margin-top:0" id="f-insert">
+<button class="chip" data-ins="{{snippet:signature}}">+ 落款片段</button>
+${editState.vars.map((v) => `<button class="chip" data-ins="{{${esc(v.name)}}}">+ ${esc(v.name)}</button>`).join('')}
+</div>
+<textarea id="f-gloss" style="min-height:180px" placeholder="中文话术，填空位用 {{变量名}}，落款用 {{snippet:signature}}">${esc(editState.gloss_zh)}</textarea>
+<label class="fl">来源（可选）</label>
+<input id="f-src" value="${esc(editState.source_buyer)}" placeholder="如 marlen-kell-rosario">
+<div class="btnrow mt8">
+<button class="btn" id="f-save">${isNew? '创建模板': '保存修改'}</button>
+<button class="btn ghost" id="f-cancel">取消</button>
+</div>
+${isNew? '': '<button class="btn danger mt8" id="f-del">删除整个模板</button>'}
+</div>`;
+
+/* ---- 渲染（同壳：Modal.open 已开时只换内容，不重播动画） ---- */
+const title = () => isEdit? (isNew? '新增模板': '编辑模板'): (t.note_zh || t.title);
+const bodyHTML = () => isEdit? editBodyHTML(): viewBodyHTML();
 const onClose = () => {
 const wasPushed = tplModalPushed;
-tplModalId = null; tplModalPushed = false;
-// push 进来的用 history.back() 回到列表（popstate 会同步状态）；直链进来的直接改地址
+tplModalId = null; tplModalMode = 'view'; tplModalPushed = false;
+// push 进来的用 history.back() 回到上一级（编辑→使用，使用→列表）；直链进来的直接改地址
 if (wasPushed) history.back();
 else history.replaceState(null, '', '#/tpl');
 };
-Modal.open({ title: t.note_zh || t.title, body: bodyHTML(), onClose});
-
-const refresh = () => {
+// 关闭拦截：编辑态的 ×/Esc/点遮罩/取消 = 原地切回使用模式，不清壳（同壳复用）
+const onBeforeClose = () => {
+if (tplModalMode !== 'edit') return true; // 使用态：正常关闭
+if (isNew) return true; // 新建无使用态：正常关闭（onClose 回列表）
+const wasPushed = tplModalPushed;
+if (wasPushed) history.back(); // popstate 原地切回使用模式
+else { history.replaceState(null, '', '#/tpl/' + t.id); openTplModal(t.id, 'view'); }
+return false; // 拦截关闭，壳留着
+};
+const mb = () => document.querySelector('#m-body');
+const viewRefresh = () => {
 const box = document.getElementById('m-box');
 if (box) box.innerHTML = boxHTML();
 const m = missing();
 const copyBtn = document.getElementById('m-copy');
-if (copyBtn) {
-copyBtn.textContent = '复制文本';
-copyBtn.classList.toggle('dim', m.length > 0);
-}
+if (copyBtn) { copyBtn.textContent = '复制文本'; copyBtn.classList.toggle('dim', m.length > 0);}
 const miss = document.getElementById('m-miss');
 if (miss) miss.textContent = m.length? '还差：' + m.map((v) => v.label_zh || v.name).join('、'): '';
 };
-document.querySelectorAll('#m-body [data-slot]').forEach((i) => {
-i.oninput = () => { state.slots[i.dataset.slot] = i.value; refresh();};
+const bindView = () => {
+mb().querySelectorAll('[data-slot]').forEach((i) => {
+i.oninput = () => { viewState.slots[i.dataset.slot] = i.value; viewRefresh();};
 });
-const copyBtn = document.getElementById('m-copy');
+const copyBtn = mb().querySelector('#m-copy');
 if (copyBtn) copyBtn.onclick = async () => {
 const m = missing();
 if (m.length) return toast(`红线：${m.map((v) => v.label_zh || v.name).join('、')}不能为空，填好再复制`);
 try {
 const r = await api(`/api/reply-templates/${t.id}/render`, {
-method: 'POST', body: JSON.stringify({ lang: 'ZH', slots: state.slots}),
+method: 'POST', body: JSON.stringify({ lang: 'ZH', slots: viewState.slots}),
 });
 await navigator.clipboard.writeText(r.text);
 api(`/api/reply-templates/${t.id}/use`, { method: 'POST'}).catch(() => {});
 toast('已复制，去阿里消息中心粘贴');
 } catch (e) { toast(e.message);}
 };
-const prevBtn = document.getElementById('m-prev');
+const prevBtn = mb().querySelector('#m-prev');
 if (prevBtn) prevBtn.onclick = () => go(-1);
-const nextBtn = document.getElementById('m-next');
+const nextBtn = mb().querySelector('#m-next');
 if (nextBtn) nextBtn.onclick = () => go(1);
-const editBtn = document.getElementById('m-edit');
+const editBtn = mb().querySelector('#m-edit');
 if (editBtn) editBtn.onclick = () => {
-history.pushState({ tplEdit: t.id }, '', '#/tpl/' + t.id + '/edit');
-tplEditPushed = true;
-openTplEditModal(t.id);
+history.pushState({ tplModal: t.id, tplMode: 'edit'}, '', '#/tpl/' + t.id + '/edit');
+tplModalPushed = true;
+openTplModal(t.id, 'edit');
 };
-refresh();
-}
-
-/* ---------- 编辑页：语言标签页 + 变量管理 + 片段插入 ---------- */
-/* ---------- 模板编辑：全局弹窗 + 中文配置（无语言选项） ---------- */
-let tplEditId = null; // 'new' | number | null
-let tplEditPushed = false;
-
-async function openTplEditModal(id) {
-  // 保证列表页在弹窗底下（直链进入编辑地址时）
-  if (!document.getElementById('t-list')) await viewTplList();
-  const isEdit = id !== null && id !== undefined;
-  let t = null;
-  if (isEdit) {
-    t = (tplLastList || []).find((x) => x.id === Number(id));
-    if (!t) {
-      try { t = await api('/api/reply-templates/' + id); }
-      catch (e) { toast('模板不存在'); history.replaceState(null, '', '#/tpl'); return; }
-    }
-  }
-  let editId = isEdit ? Number(t.id) : null;
-  tplEditId = isEdit ? editId : 'new';
-  tplModalId = null; // 编辑弹窗已换上，模板态清掉（否则返回时守卫误判已开）
-  const state = {
-    scene: t ? t.scene : 'first',
-    category: t ? t.category : '通用',
-    note_zh: t ? t.note_zh : '',
-    gloss_zh: t ? (t.gloss_zh || '') : '',
-    source_buyer: t ? t.source_buyer : '',
-    vars: t ? t.vars.map((v) => ({ ...v })) : [],
-  };
-  const scanVars = () => {
-    const found = [];
-    const re = /\{\{\s*([a-z_]+)\s*\}\}/g; let m;
-    while ((m = re.exec(state.gloss_zh))) if (!found.includes(m[1])) found.push(m[1]);
-    found.forEach((name) => {
-      if (!state.vars.some((v) => v.name === name)) {
-        state.vars.push({ name, type: name === 'price' || name === 'quantity' ? 'number' : 'text',
-          required: name === 'price' || name === 'lead_time' ? 1 : 0, label_zh: name, sample: '' });
-      }
-    });
-    state.vars = state.vars.filter((v) => found.includes(v.name));
-  };
-  const bodyHTML = () => `
-  <div class="mt8">
-    <div class="frow">
-      <div class="grow"><label class="fl" style="margin-top:0">场景</label>
-        <select id="f-scene">${Object.entries(TPL_SCENE).map(([k, v]) =>
-          `<option value="${k}" ${state.scene === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
-      <div class="grow"><label class="fl" style="margin-top:0">分类</label>
-        <input id="f-cat" value="${esc(state.category)}" placeholder="如：通用/西装/晚礼服"></div>
-    </div>
-    <label class="fl">使用说明（什么时候用）</label>
-    <input id="f-note" value="${esc(state.note_zh)}" placeholder="一句话中文说明">
-    <label class="fl">中文话术</label>
-    <div class="seg" style="margin-top:0" id="f-insert">
-      <button class="chip" data-ins="{{snippet:signature}}">+ 落款片段</button>
-      ${state.vars.map((v) => `<button class="chip" data-ins="{{${esc(v.name)}}}">+ ${esc(v.name)}</button>`).join('')}
-    </div>
-    <textarea id="f-gloss" style="min-height:180px" placeholder="中文话术，填空位用 {{变量名}}，落款用 {{snippet:signature}}">${esc(state.gloss_zh)}</textarea>
-    <div class="btnrow mt8"><button class="btn ghost" id="f-scan">从话术扫描变量</button></div>
-    <label class="fl">变量管理（${state.vars.length} 个）</label>
-    <div id="f-vars">${state.vars.map((v, i) => `
-      <div class="varrow">
-        <div class="rowline"><code style="font-weight:700">{{${esc(v.name)}}}</code>
-          <label style="font-size:12px;display:flex;align-items:center;gap:4px">
-            <input type="checkbox" data-vi="${i}" data-k="required" ${v.required ? 'checked' : ''} style="width:auto"> 必填</label>
-          <button class="chip" data-vdel="${i}">删除</button></div>
-        <div class="frow mt4">
-          <div class="grow"><input data-vi="${i}" data-k="label_zh" value="${esc(v.label_zh)}" placeholder="中文名"></div>
-          <div class="grow"><select data-vi="${i}" data-k="type">${VAR_TYPES.map((tp) =>
-            `<option value="${tp}" ${v.type === tp ? 'selected' : ''}>${VAR_TYPE_ZH[tp]}</option>`).join('')}</select></div>
-        </div>
-        <input class="mt4" data-vi="${i}" data-k="sample" value="${esc(v.sample)}" placeholder="示例值（输入框提示用），如 175">
-      </div>`).join('') || '<div class="muted">暂无变量，点"从话术扫描变量"</div>'}
-    </div>
-    <label class="fl">来源（可选）</label>
-    <input id="f-src" value="${esc(state.source_buyer)}" placeholder="如 marlen-kell-rosario">
-    <div class="btnrow mt8">
-      <button class="btn" id="f-save">${isEdit ? '保存修改' : '创建模板'}</button>
-      <button class="btn ghost" id="f-cancel">取消</button>
-    </div>
-    ${isEdit ? '<button class="btn danger mt8" id="f-del">删除整个模板</button>' : ''}
-  </div>`;
-  const mb = () => document.querySelector('#m-body');
-  const syncFromDOM = () => {
-    const g = (sel) => mb().querySelector(sel);
-    if (g('#f-scene')) state.scene = g('#f-scene').value;
-    if (g('#f-cat')) state.category = g('#f-cat').value;
-    if (g('#f-note')) state.note_zh = g('#f-note').value;
-    if (g('#f-gloss')) state.gloss_zh = g('#f-gloss').value;
-    if (g('#f-src')) state.source_buyer = g('#f-src').value;
-  };
-  const bind = () => {
-    mb().querySelectorAll('#f-insert .chip').forEach((b) => {
-      b.onclick = () => {
-        const ta = mb().querySelector('#f-gloss');
-        const s = ta.selectionStart || 0, e = ta.selectionEnd || 0;
-        ta.value = ta.value.slice(0, s) + b.dataset.ins + ta.value.slice(e);
-        ta.focus();
-      };
-    });
-    mb().querySelector('#f-scan').onclick = () => { syncFromDOM(); scanVars(); repaint(); toast(`已扫描出 ${state.vars.length} 个变量`); };
-    mb().querySelectorAll('[data-vi]').forEach((el) => {
-      el.oninput = el.onchange = () => {
-        const v = state.vars[+el.dataset.vi];
-        if (!v) return;
-        v[el.dataset.k] = el.type === 'checkbox' ? (el.checked ? 1 : 0) : el.value;
-      };
-    });
-    mb().querySelectorAll('[data-vdel]').forEach((b) => {
-      b.onclick = () => { state.vars.splice(+b.dataset.vdel, 1); syncFromDOM(); repaint(); };
-    });
-    ['f-scene', 'f-cat', 'f-note', 'f-gloss', 'f-src'].forEach((fid) => {
-      const el = mb().querySelector('#' + fid);
-      if (el) el.oninput = (e) => {
-        if (fid === 'f-scene') state.scene = e.target.value;
-        else if (fid === 'f-cat') state.category = e.target.value;
-        else if (fid === 'f-note') state.note_zh = e.target.value;
-        else if (fid === 'f-gloss') state.gloss_zh = e.target.value;
-        else state.source_buyer = e.target.value;
-      };
-    });
-    mb().querySelector('#f-save').onclick = async () => {
-      syncFromDOM();
-      if (!state.gloss_zh.trim()) return toast('中文话术不能为空');
-      const body = { scene: state.scene, category: state.category.trim() || '通用',
-        note_zh: state.note_zh.trim(), gloss_zh: state.gloss_zh.trim(),
-        source_buyer: state.source_buyer.trim(), vars: state.vars };
-      try {
-        if (isEdit) { await api('/api/reply-templates/' + editId, { method: 'PUT', body: JSON.stringify(body) }); toast('已保存'); }
-        else { const r = await api('/api/reply-templates', { method: 'POST', body: JSON.stringify(body) }); editId = r.id; toast('已创建'); }
-        await viewTplList(null, true);
-        Modal.close();
-      } catch (e) { toast(e.message); }
-    };
-    mb().querySelector('#f-cancel').onclick = () => Modal.close();
-    const delBtn = mb().querySelector('#f-del');
-    if (delBtn) delBtn.onclick = () => {
-      syncFromDOM();
-      Modal.setTitle('删除模板');
-      Modal.setBody(`<div class="mt8"><p>确定删除整个模板？删除后无法恢复。</p>
-        <div class="btnrow mt8">
-          <button class="btn danger" id="f-del-ok">删除</button>
-          <button class="btn ghost" id="f-del-cancel">取消</button>
-        </div></div>`);
-      mb().querySelector('#f-del-ok').onclick = async () => {
-        try {
-          await api('/api/reply-templates/' + editId, { method: 'DELETE' });
-          toast('已删除');
-          await viewTplList(null, true);
-          tplEditId = null; tplEditPushed = false; tplModalId = null; tplModalPushed = false;
-          history.replaceState(null, '', '#/tpl');
-          Modal.clear();
-        } catch (e) { toast(e.message); }
-      };
-      mb().querySelector('#f-del-cancel').onclick = () => { Modal.setTitle(isEdit ? '编辑模板' : '新增模板'); repaint(); };
-    };
-  };
-  const repaint = () => { Modal.setBody(bodyHTML()); bind(); };
-  const onClose = () => {
-    tplEditId = null;
-    const wasPushed = tplEditPushed;
-    tplEditPushed = false;
-    if (wasPushed) history.back();
-    else location.hash = editId ? '#/tpl/' + editId : '#/tpl';
-  };
-  Modal.open({ title: isEdit ? '编辑模板' : '新增模板', body: bodyHTML(), onClose });
-  bind();
+viewRefresh();
+};
+const syncEditFromDOM = () => {
+const g = (sel) => mb().querySelector(sel);
+if (g('#f-scene')) editState.scene = g('#f-scene').value;
+if (g('#f-cat')) editState.category = g('#f-cat').value;
+if (g('#f-note')) editState.note_zh = g('#f-note').value;
+if (g('#f-gloss')) editState.gloss_zh = g('#f-gloss').value;
+if (g('#f-src')) editState.source_buyer = g('#f-src').value;
+};
+const bindEdit = () => {
+mb().querySelectorAll('#f-insert.chip').forEach((b) => {
+b.onclick = () => {
+const ta = mb().querySelector('#f-gloss');
+const s = ta.selectionStart || 0, e = ta.selectionEnd || 0;
+ta.value = ta.value.slice(0, s) + b.dataset.ins + ta.value.slice(e);
+ta.focus();
+};
+});
+mb().querySelector('#f-scan').onclick = () => { syncEditFromDOM(); scanVars(); repaint(); toast(`已扫描出 ${editState.vars.length} 个变量`);};
+mb().querySelectorAll('[data-vi]').forEach((el) => {
+el.oninput = el.onchange = () => {
+const v = editState.vars[+el.dataset.vi];
+if (!v) return;
+v[el.dataset.k] = el.type === 'checkbox'? (el.checked? 1: 0): el.value;
+};
+});
+mb().querySelectorAll('[data-vdel]').forEach((b) => {
+b.onclick = () => { editState.vars.splice(+b.dataset.vdel, 1); syncEditFromDOM(); repaint();};
+});
+['f-scene', 'f-cat', 'f-note', 'f-gloss', 'f-src'].forEach((fid) => {
+const el = mb().querySelector('#' + fid);
+if (el) el.oninput = (e) => {
+if (fid === 'f-scene') editState.scene = e.target.value;
+else if (fid === 'f-cat') editState.category = e.target.value;
+else if (fid === 'f-note') editState.note_zh = e.target.value;
+else if (fid === 'f-gloss') editState.gloss_zh = e.target.value;
+else editState.source_buyer = e.target.value;
+};
+});
+mb().querySelector('#f-save').onclick = async () => {
+syncEditFromDOM();
+if (!editState.gloss_zh.trim()) return toast('中文话术不能为空');
+const body = { scene: editState.scene, category: editState.category.trim() || '通用',
+note_zh: editState.note_zh.trim(), gloss_zh: editState.gloss_zh.trim(),
+source_buyer: editState.source_buyer.trim(), vars: editState.vars};
+try {
+if (isNew) { await api('/api/reply-templates', { method: 'POST', body: JSON.stringify(body)}); toast('已创建');}
+else { await api('/api/reply-templates/' + t.id, { method: 'PUT', body: JSON.stringify(body)}); toast('已保存');}
+await viewTplList(null, true);
+Modal.close();
+} catch (e) { toast(e.message);}
+};
+mb().querySelector('#f-cancel').onclick = () => Modal.close();
+const delBtn = mb().querySelector('#f-del');
+if (delBtn) delBtn.onclick = () => {
+syncEditFromDOM();
+Modal.setTitle('删除模板');
+Modal.setBody(`<div class="mt8"><p>确定删除整个模板？删除后无法恢复。</p>
+<div class="btnrow mt8">
+<button class="btn danger" id="f-del-ok">删除</button>
+<button class="btn ghost" id="f-del-cancel">取消</button>
+</div></div>`);
+mb().querySelector('#f-del-ok').onclick = async () => {
+try {
+await api('/api/reply-templates/' + t.id, { method: 'DELETE'});
+toast('已删除');
+await viewTplList(null, true);
+tplModalId = null; tplModalMode = 'view'; tplModalPushed = false;
+history.replaceState(null, '', '#/tpl');
+Modal.clear();
+} catch (e) { toast(e.message);}
+};
+mb().querySelector('#f-del-cancel').onclick = () => { Modal.setTitle('编辑模板'); repaint();};
+};
+};
+const repaint = () => { Modal.setBody(bodyHTML()); if (isEdit) bindEdit(); else bindView();};
+Modal.open({ title: title(), body: bodyHTML(), onClose, onBeforeClose });
+if (isEdit) bindEdit(); else bindView();
 }
 
 /* ---------------- 占位 ---------------- */
