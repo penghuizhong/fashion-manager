@@ -1,0 +1,58 @@
+name: Test and deploy
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install server deps
+        working-directory: server
+        run: npm ci
+      - name: Syntax check
+        run: |
+          node --check server/src/index.js
+          node --check server/src/db.js
+          node --check server/src/styleNo.js
+          node --check server/src/seedTemplates.js
+          node --check client/app.js
+      - name: Smoke test (API)
+        working-directory: server
+        run: |
+          PORT=3101 node src/index.js &
+          SRV=$!
+          sleep 2
+          curl -sf http://127.0.0.1:3101/api/config
+          curl -sf -X POST http://127.0.0.1:3101/api/garments \
+            -H 'Content-Type: application/json' \
+            -d '{"name":"CI测试款","category":"TS","season":"S"}'
+          kill $SRV
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 43.130.1.94
+          port: 28989
+          username: root
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd /opt/fashion-manager
+            git fetch origin main
+            git reset --hard origin/main
+            cd server && npm ci --omit=dev
+            systemctl restart fashion-manager
+            sleep 3
+            curl -sf http://127.0.0.1:3101/api/config | head -c 200
