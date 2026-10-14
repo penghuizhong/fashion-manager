@@ -23,7 +23,7 @@ jobs:
           node --check server/src/index.js
           node --check server/src/db.js
           node --check server/src/styleNo.js
-          node --check server/src/seedTemplates.js
+          node --check server/src/seedTemplatesV3.js
           node --check client/app.js
       - name: Smoke test (API)
         working-directory: server
