@@ -29,7 +29,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.7',
+  version: '0.10.8',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -818,9 +818,11 @@ function smartRetrieve(under, message) {
   const rank = new Map(topIds.map((id, i) => [id, i]));
   rows.sort((a, b) => rank.get(a.id) - rank.get(b.id));
   const varStmt = db.prepare('SELECT name,type,required,label_zh FROM template_vars WHERE template_id=? ORDER BY sort,id');
+  const scoreMap = new Map(scored);
   return rows.map((t) => ({
     id: t.id, key: t.key, scene: t.scene, note_zh: t.note_zh, gloss_zh: t.gloss_zh || '',
     vars: varStmt.all(t.id),
+    score: scoreMap.get(t.id) || 0,
   }));
 }
 function aiRetrieve(message) {
@@ -903,6 +905,13 @@ app.post('/api/ai/assist', async (req, res) => {
   if (!candidates.length) candidates = aiRetrieve(message);
   if (!candidates.length) return res.status(404).json({ error: '话术库中没有匹配的模板' });
 
+  // 短路优化：Top-1 分数断层领先且无变量可填时，直接采用，跳过 LLM 选中（省一次模型调用）
+  const top1 = candidates[0];
+  const top2score = candidates.length > 1 ? (candidates[1].score || 0) : 0;
+  if ((top1.score || 0) - top2score >= 30 && (!top1.vars || !top1.vars.length)) {
+    return finishAssist(res, top1.id, {}, message, cfg, candidates);
+  }
+
   const sys = '你是话术库助手。从候选模板中选最匹配的一条，输出 JSON {template_id, slots:{name:value}}。' +
     (under && under.intent ? `买家意图：${under.intent}。` : '') +
     (hasPriceIntent(message) ? '买家在问价，优先选报价类模板。' : '') +
@@ -937,10 +946,15 @@ app.post('/api/ai/assist', async (req, res) => {
   }
 
   const templateId = Number(llm && llm.template_id);
-  const tpl = candidates.find((c) => c.id === templateId);
+  return finishAssist(res, templateId, (llm && llm.slots) || {}, message, cfg, candidates);
+});
+
+// 短路/正常流程共用的收尾：护栏检查 + 渲染 + 返回
+function finishAssist(res, templateId, rawSlots, message, cfg, candidates) {
+  const tpl = candidates.find((c) => c.id === Number(templateId));
   if (!tpl) return res.status(500).json({ error: 'AI 返回了候选之外的模板，请重试' });
 
-  const { slots, missing } = aiGuardrails(tpl, llm.slots, message);
+  const { slots, missing } = aiGuardrails(tpl, rawSlots, message);
   // 中文渲染：同 :id/render 的 ZH 逻辑（gloss_zh + 落款片段展开）
   const full = getTemplateFull(tpl.id);
   const filled_text = renderBody(expandSnippets(full.gloss_zh || '', 'ZH'), slots);
@@ -948,7 +962,7 @@ app.post('/api/ai/assist', async (req, res) => {
     ok: true, template_id: tpl.id, template_key: tpl.key, note_zh: tpl.note_zh,
     filled_text, slots, missing,
   });
-});
+}
 
 // ---------- static ----------
 app.use(express.static(path.join(__dirname, '..', '..', 'client')));
