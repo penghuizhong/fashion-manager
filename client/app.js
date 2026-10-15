@@ -509,7 +509,7 @@ return;
 }
 app.innerHTML = `${topbar('回复模板库')}
 <div class="page" style="padding-top:10px">
-<input id="t-q" class="searchbar" placeholder="搜索：标题 / 正文 / 使用说明" value="${esc(tplQuery)}" autocomplete="off">
+<input id="t-q" class="searchbar" placeholder="搜索：编号 / 标题 / 正文 / 使用说明" value="${esc(tplQuery)}" autocomplete="off">
 <div class="rowline mt8" style="gap:8px">
 <select id="t-tag" style="flex:1"><option value="">全部标签</option></select>
 <button class="btn ghost" id="t-new">+ 新增模板</button>
@@ -539,10 +539,10 @@ const tagHtml = (t.tags && t.tags.length)? `<div class="rowline mt4" style="flex
 `<span class="tchip sm">${esc(g.name)}</span>`).join('')}</div>`: '';
 return `
 <div class="card tappable qa-card" data-id="${t.id}">
+<div class="rowline" style="gap:6px;margin-bottom:6px"><span class="tchip">${esc(t.key)}</span>${t.usage_count > 0 ? `<span class="muted" style="font-size:11px;margin-left:auto">用过${t.usage_count}</span>` : ''}</div>
 <div class="qa-line"><span class="qa-mark q">Q</span><span class="qa-qtext">${esc(q)}</span></div>
 ${a? `<div class="qa-line"><span class="qa-mark a">A</span><span class="qa-atext">${esc(a)}</span></div>`: ''}
 ${tagHtml}
-${t.usage_count > 0? `<div class="rowline mt4"><span class="muted" style="font-size:11px;margin-left:auto">用过${t.usage_count}</span></div>`: ''}
 </div>`;
 };
 const draw = (data) => {
@@ -948,6 +948,7 @@ function aiRenderResult(d) {
     <div class="talkbox mt8">${esc(d.filled_text)}</div>
     ${miss.length ? `<div class="miss">红线：${miss.map(esc).join('、')}未填写，填好才能复制</div>` : '<div class="miss"></div>'}
     <button class="btn" id="ai-copy" style="width:100%;margin-top:8px">复制话术</button>
+    <button class="btn ghost" id="ai-edit-tpl" style="width:100%;margin-top:8px">编辑这条话术</button>
     <div class="muted" style="text-align:center;margin-top:6px">红线：必填项没填时不许复制 · 粘贴到阿里消息中心，平台自动翻译</div>
   </div>`;
   const cp = $('#ai-copy');
@@ -959,6 +960,8 @@ function aiRenderResult(d) {
       toast('已复制，去阿里消息中心粘贴');
     } catch (e) { toast('复制失败：' + e.message); }
   };
+  const et = $('#ai-edit-tpl');
+  if (et) et.onclick = () => { location.hash = `#/tpl/${d.template_id}/edit`; };
 }
 
 /* ---------------- 管理设置弹窗（全局 Modal + 横向滑动二级导航） ---------------- */
