@@ -4,11 +4,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import db, { now, DATA_DIR } from './db.js';
 import { nextStyleNo, canTransition, STATUS_LABEL, CATEGORIES, SEASONS } from './styleNo.js';
-import { SNIPPETS, TEMPLATES } from './seedTemplatesV3.js';
+import { SNIPPETS, TEMPLATES } from './seedTemplatesV4.js';
 const LANGS = ['EN', 'ES', 'PT', 'FR', 'DE', 'AR'];
 const SCENES = ['first', 'ask', 'quote', 'nudge'];
 
-seedV3();
+seedV4();
 // 中文落款片段：阿里内置翻译流用（粘中文，平台自动翻译）；老库启动时补齐（seedV3 只在空库跑）
 db.prepare(`INSERT OR IGNORE INTO snippets (key,lang,title_zh,body) VALUES ('signature','ZH','落款-中文','祝好，\nYingzi')`).run();
 
@@ -28,7 +28,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.8.0',
+  version: '0.9.0',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -239,49 +239,54 @@ ${items || '· （无）'}
 // 红线（通用规则）：required=1 的变量为空时 render 直接 400，不许复制发出
 // 价格/交期绝不能编造 —— 由变量 required 机制保证，不再是写死的特例
 
-function seedV3() {
-  const n = db.prepare('SELECT COUNT(*) c FROM templates WHERE origin=?').get('seed').c;
-  if (n === 0) {
-    const t = now();
-    const insT = db.prepare(
-      `INSERT INTO templates (key,scene,category,status,version,note_zh,gloss_zh,source_buyer,usage_count,origin,created_at,updated_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
-    );
-    const insL = db.prepare('INSERT INTO template_locales (template_id,lang,title,body) VALUES (?,?,?,?)');
-    const insV = db.prepare(
-      'INSERT INTO template_vars (template_id,name,type,required,label_zh,sample,sort) VALUES (?,?,?,?,?,?,?)'
-    );
-    const insS = db.prepare(
-      'INSERT OR IGNORE INTO snippets (key,lang,title_zh,body) VALUES (?,?,?,?)'
-    );
-    db.transaction(() => {
-      for (const s of SNIPPETS) insS.run(s.key, s.lang, s.title_zh || '', s.body);
-      for (const tpl of TEMPLATES) {
-        const id = insT.run(
-          tpl.key, tpl.scene, tpl.category || '通用', 'published', 1,
-          tpl.note_zh || '', tpl.gloss_zh || '', tpl.source_buyer || '', 0, 'seed', t, t
-        ).lastInsertRowid;
-        (tpl.locales || []).forEach((l) => insL.run(id, l.lang, l.title, l.body));
-        (tpl.vars || []).forEach((v, i) =>
-          insV.run(id, v.name, v.type || 'text', v.required ? 1 : 0, v.label_zh || v.name, v.sample || '', i));
-      }
-    })();
-    console.log(`[seed] v3 模板库：${TEMPLATES.length} 个逻辑模板 / ${SNIPPETS.length} 个共享片段`);
+function seedV4() {
+  const row = db.prepare(`SELECT value FROM app_config WHERE key='seed_version'`).get();
+  if (row && row.value === 'v4') {
+    // 已是 v4：回填空 gloss_zh（兼容），不重灌
+    const rows = db.prepare(`SELECT id, key FROM templates WHERE origin='seed' AND (gloss_zh IS NULL OR gloss_zh='')`).all();
+    if (rows.length) {
+      const upd = db.prepare(`UPDATE templates SET gloss_zh=? WHERE id=?`);
+      let c = 0;
+      db.transaction(() => {
+        for (const r of rows) {
+          const tpl = TEMPLATES.find((x) => x.key === r.key);
+          if (tpl && tpl.gloss_zh) { upd.run(tpl.gloss_zh, r.id); c++; }
+        }
+      })();
+      if (c) console.log(`[seed] 回填 gloss_zh：${c} 个模板`);
+    }
     return;
   }
-  // 已有种子：回填新增字段（如 gloss_zh），不重灌
-  const rows = db.prepare(`SELECT id, key FROM templates WHERE origin='seed' AND (gloss_zh IS NULL OR gloss_zh='')`).all();
-  if (rows.length) {
-    const upd = db.prepare(`UPDATE templates SET gloss_zh=? WHERE id=?`);
-    let c = 0;
-    db.transaction(() => {
-      for (const r of rows) {
-        const tpl = TEMPLATES.find((x) => x.key === r.key);
-        if (tpl && tpl.gloss_zh) { upd.run(tpl.gloss_zh, r.id); c++; }
-      }
-    })();
-    if (c) console.log(`[seed] 回填 gloss_zh：${c} 个模板`);
-  }
+  // v0.9.0：话术库 v2.1 全量替换 —— 只动 origin='seed' 的模板与 snippets，
+  // 自定义（custom）/legacy 模板、款档案/样衣/报价等业务表不受影响
+  const t = now();
+  const insT = db.prepare(
+    `INSERT INTO templates (key,scene,category,status,version,note_zh,gloss_zh,source_buyer,usage_count,origin,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  );
+  const insL = db.prepare('INSERT INTO template_locales (template_id,lang,title,body) VALUES (?,?,?,?)');
+  const insV = db.prepare(
+    'INSERT INTO template_vars (template_id,name,type,required,label_zh,sample,sort) VALUES (?,?,?,?,?,?,?)'
+  );
+  const insS = db.prepare(
+    'INSERT OR IGNORE INTO snippets (key,lang,title_zh,body) VALUES (?,?,?,?)'
+  );
+  db.transaction(() => {
+    db.prepare(`DELETE FROM templates WHERE origin='seed'`).run();
+    db.prepare('DELETE FROM snippets').run();
+    for (const s of SNIPPETS) insS.run(s.key, s.lang, s.title_zh || '', s.body);
+    for (const tpl of TEMPLATES) {
+      const id = insT.run(
+        tpl.key, tpl.scene, tpl.category || '通用', 'published', 1,
+        tpl.note_zh || '', tpl.gloss_zh || '', tpl.source_buyer || '', 0, 'seed', t, t
+      ).lastInsertRowid;
+      (tpl.locales || []).forEach((l) => insL.run(id, l.lang, l.title, l.body));
+      (tpl.vars || []).forEach((v, i) =>
+        insV.run(id, v.name, v.type || 'text', v.required ? 1 : 0, v.label_zh || v.name, v.sample || '', i));
+    }
+    db.prepare(`INSERT OR REPLACE INTO app_config (key,value,updated_at) VALUES ('seed_version','v4',?)`).run(t);
+  })();
+  console.log(`[seed] v4 话术库 v2.1 全量重灌：${TEMPLATES.length} 个模板 / ${SNIPPETS.length} 个共享片段`);
 }
 
 function expandSnippets(body, lang) {
@@ -437,7 +442,7 @@ app.post('/api/reply-templates/reseed', (req, res) => {
     db.prepare(`DELETE FROM templates WHERE origin='seed'`).run();
     db.prepare('DELETE FROM snippets').run();
   })();
-  seedV3();
+  seedV4();
   res.json({ ok: true, count: TEMPLATES.length });
 });
 
@@ -555,7 +560,10 @@ app.put('/api/admin/config', (req, res) => {
 });
 
 // AI 检索：关键词 LIKE（gloss_zh/note_zh/key/category/语言变体）
+// v0.9.0：92 条模板下，原"OR 泛洪 + 任意取 8"Top-8 召回仅 30%（黄金集实测）。
+// 改为停用词过滤 + 按命中 token 数计分排序，黄金集 Top-8 召回 100%。
 // 预留：标签过滤（0.3）与向量检索（0.4b）接入点
+const AI_STOP = new Set(('what is the a an and or to of in on for you your yours i it its are do does did can could would should shall will please hi hello hey thanks thank thankyou bonjour salut hola ola salam quoi comment combien pour avec dans les des une un uno el la los las der die das und ist ich ich bin ein eine den dem ein en et det de da quoi 什么 怎么 如何 多少 吗 呢 的 了 是 有 在 和 与 或 个 这 那 我 你 您 他 她 它 们').split(' '));
 function aiRetrieve(message) {
   const runs = String(message).match(/[\p{L}\p{N}]{2,}/gu) || [];
   const toks = new Set();
@@ -566,18 +574,25 @@ function aiRetrieve(message) {
       for (let i = 0; i + 2 <= r.length; i++) toks.add(r.slice(i, i + 2));
     }
   }
-  const tokens = [...toks].slice(0, 24);
+  let tokens = [...toks].filter((t) => t.length >= 2 && !AI_STOP.has(t.toLowerCase())).slice(0, 24);
+  if (!tokens.length) tokens = [...toks].slice(0, 8); // 全是停用词（如只有 hello）时回退
   if (!tokens.length) return [];
-  const conds = [], args = [];
+  const scored = new Map(); // template_id -> 命中 token 数
+  const stmt = db.prepare(
+    `SELECT t.id FROM templates t WHERE t.key LIKE ? OR t.note_zh LIKE ? OR t.gloss_zh LIKE ?
+     OR t.category LIKE ? OR EXISTS (SELECT 1 FROM template_locales l WHERE l.template_id=t.id AND (l.title LIKE ? OR l.body LIKE ?))`
+  );
   for (const tk of tokens) {
     const like = `%${tk}%`;
-    conds.push(`(t.key LIKE ? OR t.note_zh LIKE ? OR t.gloss_zh LIKE ? OR t.category LIKE ?
-      OR EXISTS (SELECT 1 FROM template_locales l WHERE l.template_id=t.id AND (l.title LIKE ? OR l.body LIKE ?)))`);
-    args.push(like, like, like, like, like, like);
+    for (const r of stmt.all(like, like, like, like, like, like)) {
+      scored.set(r.id, (scored.get(r.id) || 0) + 1);
+    }
   }
-  const rows = db.prepare(
-    `SELECT DISTINCT t.* FROM templates t WHERE ${conds.join(' OR ')} ORDER BY t.usage_count DESC, t.id LIMIT 8`
-  ).all(...args);
+  const topIds = [...scored.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map((e) => e[0]);
+  if (!topIds.length) return [];
+  const rows = db.prepare(`SELECT * FROM templates WHERE id IN (${topIds.map(() => '?').join(',')})`).all(...topIds);
+  const rank = new Map(topIds.map((id, i) => [id, i]));
+  rows.sort((a, b) => rank.get(a.id) - rank.get(b.id));
   return rows.map((t) => ({
     id: t.id, key: t.key, scene: t.scene, note_zh: t.note_zh, gloss_zh: t.gloss_zh || '',
     vars: db.prepare('SELECT name,type,required,label_zh FROM template_vars WHERE template_id=? ORDER BY sort,id').all(t.id),
