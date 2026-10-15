@@ -130,6 +130,18 @@ CREATE TABLE IF NOT EXISTS app_config (
   value TEXT NOT NULL DEFAULT '',
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  grp TEXT NOT NULL,
+  name TEXT NOT NULL UNIQUE,
+  sort INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS template_tags (
+  template_id INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+  tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+  UNIQUE(template_id, tag_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tt_tag ON template_tags(tag_id);
 `);
 
 // v0.3.0 迁移：老 reply_templates（v0.2.x 平铺结构）→ 新结构
@@ -176,6 +188,22 @@ const tplCols = db.prepare(`PRAGMA table_info(templates)`).all().map((c) => c.na
 if (!tplCols.includes('gloss_zh')) {
   db.exec(`ALTER TABLE templates ADD COLUMN gloss_zh TEXT NOT NULL DEFAULT ''`);
   console.log('[migrate] templates + gloss_zh 列');
+}
+
+// v0.10.0：受控词表 v2 种子（任务 3 标签系统）
+import { TAGS as SEED_TAGS } from './seedTagsV1.js';
+{
+  const v = db.prepare(`SELECT value FROM app_config WHERE key='tag_seed_version'`).get();
+  if (!v || v.value !== 'v2') {
+    const t = new Date().toISOString();
+    const ins = db.prepare(`INSERT OR IGNORE INTO tags (grp,name,sort) VALUES (?,?,?)`);
+    db.transaction(() => {
+      for (const g of SEED_TAGS) ins.run(g.grp, g.name, g.sort);
+      db.prepare(`INSERT OR REPLACE INTO app_config (key,value,updated_at) VALUES ('tag_seed_version','v2',?)`).run(t);
+    })();
+    const n = db.prepare('SELECT COUNT(*) c FROM tags').get().c;
+    console.log(`[seed] 受控词表 v2：${n} 个标签`);
+  }
 }
 
 export default db;

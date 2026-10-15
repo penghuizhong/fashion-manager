@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import db, { now, DATA_DIR } from './db.js';
 import { nextStyleNo, canTransition, STATUS_LABEL, CATEGORIES, SEASONS } from './styleNo.js';
 import { SNIPPETS, TEMPLATES } from './seedTemplatesV4.js';
+import { applyTagRules } from './seedTagRules.js';
 const LANGS = ['EN', 'ES', 'PT', 'FR', 'DE', 'AR'];
 const SCENES = ['first', 'ask', 'quote', 'nudge'];
 
@@ -288,6 +289,16 @@ function seedV4() {
   })();
   console.log(`[seed] v4 话术库 v2.1 全量重灌：${TEMPLATES.length} 个模板 / ${SNIPPETS.length} 个共享片段`);
 }
+// v0.10.2：种子模板批量打标（v4 之后跑，只打 origin=seed，不覆盖人工）
+{
+  const tv = db.prepare(`SELECT value FROM app_config WHERE key='tag_rules_version'`).get();
+  if (!tv || tv.value !== 'v1') {
+    const n = applyTagRules(db);
+    db.prepare(`INSERT OR REPLACE INTO app_config (key,value,updated_at) VALUES ('tag_rules_version','v1',?)`)
+      .run(new Date().toISOString());
+    console.log(`[seed] 批量打标：${n} 条模板`);
+  }
+}
 
 function expandSnippets(body, lang) {
   return body.replace(/\{\{\s*snippet:([a-z_]+)\s*\}\}/g, (_, k) => {
@@ -322,10 +333,15 @@ const tplTitleOf = (t) => {
 
 // 列表：逻辑模板 + 可用语言 + 使用次数；q 跨全部语言变体搜索
 app.get('/api/reply-templates', (req, res) => {
-  const { q = '', scene = '' } = req.query;
+  const { q = '', scene = '', tag = '' } = req.query;
   const args = [];
   let sql = 'SELECT t.* FROM templates t WHERE 1=1';
   if (scene) { sql += ' AND t.scene=?'; args.push(scene); }
+  if (tag) {
+    sql += ` AND EXISTS (SELECT 1 FROM template_tags tt JOIN tags g ON g.id=tt.tag_id
+      WHERE tt.template_id=t.id AND g.name=?)`;
+    args.push(tag);
+  }
   if (q) {
     sql += ` AND (t.key LIKE ? OR t.note_zh LIKE ? OR t.category LIKE ?
       OR EXISTS (SELECT 1 FROM template_locales l WHERE l.template_id=t.id AND (l.title LIKE ? OR l.body LIKE ?)))`;
@@ -336,6 +352,9 @@ app.get('/api/reply-templates', (req, res) => {
   const rows = db.prepare(sql).all(...args);
   const locStmt = db.prepare('SELECT lang,title,body FROM template_locales WHERE template_id=? ORDER BY lang');
   const varStmt = db.prepare('SELECT name,label_zh FROM template_vars WHERE template_id=? ORDER BY sort,id');
+  const tagStmt = db.prepare(
+    `SELECT g.id,g.grp,g.name FROM template_tags tt JOIN tags g ON g.id=tt.tag_id
+     WHERE tt.template_id=? ORDER BY g.sort,g.id`);
   const templates = rows.map((t) => {
     const locales = locStmt.all(t.id);
     const en = locales.find((l) => l.lang === 'EN');
@@ -345,6 +364,7 @@ app.get('/api/reply-templates', (req, res) => {
       langs: locales.map((l) => l.lang),
       title: (en || locales[0] || {}).title || t.key,
       vars: varStmt.all(t.id),
+      tags: tagStmt.all(t.id),
       // 弹窗零等待：列表一次带齐各语言正文，点卡直接渲染，不再拉详情
       locales,
     };
@@ -513,6 +533,85 @@ app.delete('/api/snippets/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- tags（受控词表/打标，任务 3） ----------
+// 打标只能选表内词：PUT /api/reply-templates/:id/tags 会校验 id 合法性，词表外写不进
+const TAG_GROUPS = ['款式', '轮廓', '领型', '袖型', '元素', '面料属性', '颜色', '话题'];
+app.get('/api/tags', (req, res) => {
+  const tags = db.prepare('SELECT id,grp,name,sort FROM tags ORDER BY sort,id').all();
+  const used = db.prepare('SELECT tag_id, COUNT(*) c FROM template_tags GROUP BY tag_id').all();
+  const usedMap = new Map(used.map((u) => [u.tag_id, u.c]));
+  res.json(tags.map((t) => ({ ...t, used: usedMap.get(t.id) || 0 })));
+});
+app.post('/api/tags', (req, res) => {
+  const b = req.body || {};
+  const name = String(b.name || '').trim();
+  const grp = String(b.grp || '').trim();
+  if (!name) return res.status(400).json({ error: '标签名必填' });
+  if (!TAG_GROUPS.includes(grp)) return res.status(400).json({ error: '分组必须是：' + TAG_GROUPS.join('、') });
+  try {
+    const maxSort = db.prepare('SELECT COALESCE(MAX(sort),-1) m FROM tags').get().m;
+    const r = db.prepare('INSERT INTO tags (grp,name,sort) VALUES (?,?,?)').run(grp, name, maxSort + 1);
+    res.json({ ok: true, id: r.lastInsertRowid });
+  } catch {
+    return res.status(400).json({ error: '该标签名已存在' });
+  }
+});
+app.put('/api/tags/:id', (req, res) => {
+  const t = db.prepare('SELECT * FROM tags WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: '标签不存在' });
+  const name = String((req.body || {}).name || '').trim();
+  if (!name) return res.status(400).json({ error: '标签名必填' });
+  try {
+    db.prepare('UPDATE tags SET name=? WHERE id=?').run(name, t.id);
+    res.json({ ok: true });
+  } catch {
+    return res.status(400).json({ error: '该标签名已存在' });
+  }
+});
+app.delete('/api/tags/:id', (req, res) => {
+  const t = db.prepare('SELECT * FROM tags WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: '标签不存在' });
+  db.prepare('DELETE FROM tags WHERE id=?').run(t.id); // 关联经外键级联清除
+  res.json({ ok: true });
+});
+app.post('/api/tags/merge', (req, res) => {
+  const b = req.body || {};
+  const from = db.prepare('SELECT * FROM tags WHERE id=?').get(b.from_id);
+  const to = db.prepare('SELECT * FROM tags WHERE id=?').get(b.to_id);
+  if (!from || !to) return res.status(404).json({ error: '标签不存在' });
+  if (from.id === to.id) return res.status(400).json({ error: '不能合并到自己' });
+  db.transaction(() => {
+    db.prepare(`INSERT OR IGNORE INTO template_tags (template_id,tag_id)
+      SELECT template_id, ? FROM template_tags WHERE tag_id=?`).run(to.id, from.id);
+    db.prepare('DELETE FROM tags WHERE id=?').run(from.id);
+  })();
+  res.json({ ok: true });
+});
+// 模板打标：整组替换，只接受 tags 表内 id
+app.get('/api/reply-templates/:id/tags', (req, res) => {
+  const t = db.prepare('SELECT id FROM templates WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: '模板不存在' });
+  const rows = db.prepare(
+    `SELECT g.id,g.grp,g.name FROM template_tags tt JOIN tags g ON g.id=tt.tag_id
+     WHERE tt.template_id=? ORDER BY g.sort,g.id`).all(t.id);
+  res.json(rows);
+});
+app.put('/api/reply-templates/:id/tags', (req, res) => {
+  const t = db.prepare('SELECT id FROM templates WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: '模板不存在' });
+  const ids = [...new Set((req.body && req.body.tag_ids) || [])].map(Number).filter((n) => n > 0);
+  if (ids.length) {
+    const ok = db.prepare(`SELECT COUNT(*) c FROM tags WHERE id IN (${ids.map(() => '?').join(',')})`).get(...ids).c;
+    if (ok !== ids.length) return res.status(400).json({ error: '含词表外的标签 id，拒绝写入' });
+  }
+  const ins = db.prepare('INSERT OR IGNORE INTO template_tags (template_id,tag_id) VALUES (?,?)');
+  db.transaction(() => {
+    db.prepare('DELETE FROM template_tags WHERE template_id=?').run(t.id);
+    for (const id of ids) ins.run(t.id, id);
+  })();
+  res.json({ ok: true, count: ids.length });
+});
+
 // ---------- admin 配置 & AI 话术助手（v0.8.0） ----------
 const ADMIN_DEFAULTS = {
   base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -564,6 +663,113 @@ app.put('/api/admin/config', (req, res) => {
 // 改为停用词过滤 + 按命中 token 数计分排序，黄金集 Top-8 召回 100%。
 // 预留：标签过滤（0.3）与向量检索（0.4b）接入点
 const AI_STOP = new Set(('what is the a an and or to of in on for you your yours i it its are do does did can could would should shall will please hi hello hey thanks thank thankyou bonjour salut hola ola salam quoi comment combien pour avec dans les des une un uno el la los las der die das und ist ich ich bin ein eine den dem ein en et det de da quoi 什么 怎么 如何 多少 吗 呢 的 了 是 有 在 和 与 或 个 这 那 我 你 您 他 她 它 们').split(' '));
+// v0.10.1: 意图路由最小版（任务22）——价格意图加权 quote 场景
+// 背景："礼服多少钱"类中文问价，2-gram 切分后候选全是 1 分平局，LLM 盲选答非所问。
+// 规则先行：检出价格意图 → quote 场景模板 +100 加权，打破平局。
+const PRICE_KWS = ['多少钱','价格','报价','费用','how much','price','prices','pricing','cost','costs',
+  'combien','prix','tarif','cuánto','cuanto','precio','preço','quanto','custa',
+  'كم','السعر','سعر','الثمن','بكم',
+  'сколько','цена','стоимость',
+  'wie viel','preis','kosten'];
+function hasPriceIntent(msg) {
+  const low = String(msg).toLowerCase();
+  return PRICE_KWS.some((k) => low.includes(k.toLowerCase()));
+}
+// v0.10.2: LLM 理解层（用户要求：后台模型处理关键词自动分流，替代 2-gram 切片）
+// 流程：llmUnderstand(意图/产品标签/关键词/语言) → smartRetrieve(标签+场景+关键词精准检索) → llmSelect(选模板+抽slot)
+const TAG_VOCAB = {
+  '款式': ['西装','燕尾服','晚礼服','婚纱','伴娘裙','派对礼服','伴郎团西装','单排扣西装','双排扣西装','两件套','三件套','西装马甲'],
+  '轮廓': ['鱼尾','A字','直筒','百褶','蓬蓬'],
+  '领型': ['抹胸','V领','一字肩','单肩','挂脖','方领','戗驳领','青果领','平驳领'],
+  '袖型': ['长袖','短袖','无袖','细肩带'],
+  '元素': ['钉珠','刺绣','亮片','蕾丝贴花','珍珠','3D花朵','缎面翻领','缎面纽扣','裤侧缎条','格纹'],
+  '面料属性': ['缎面','金属缎','蕾丝','网纱','雪纺','丝绒','绉布','羊毛混纺','真丝','粘纤','聚酯纤维','高支羊毛'],
+  '颜色': ['藏青','黑色','白色','灰色','酒红','鼠尾草绿','祖母绿','粉色'],
+};
+const INTENT_SCENE = { '问价': 'quote', '打招呼': 'first', '跟进': 'nudge' };
+async function llmUnderstand(message, cfg) {
+  const vocabStr = Object.entries(TAG_VOCAB).map(([g, ws]) => `${g}：${ws.join('、')}`).join('\n');
+  const sys = '你是询盘理解助手。分析买家消息，只输出 JSON，不要输出其他文字。\n' +
+    '格式：{"intent":"问价|问MOQ|问样品|问交期|问运费|问定制|问产品|打招呼|跟进|其他",' +
+    '"product_tags":["从下面产品词表中选1-3个最相关的词，只选产品词（款式/轮廓/领型/袖型/元素/面料属性/颜色），不要选话题词"],' +
+    '"keywords":["从消息原文提取1-4个关键词，保留原文语言"],' +
+    '"lang":"EN|FR|ES|PT|AR|RU|DE|ZH|其他"}' +
+    '\n产品词表：\n' + vocabStr;
+  const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
+    body: JSON.stringify({
+      model: cfg.chat_model,
+      response_format: { type: 'json_object' },
+      messages: [{ role: 'system', content: sys }, { role: 'user', content: message }],
+      temperature: 0.1,
+    }),
+    signal: AbortSignal.timeout(30000),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((d.error && d.error.message) || `模型服务返回 ${r.status}`);
+  const text = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '{}';
+  const u = JSON.parse(text);
+  // 清洗：product_tags 只保留词表内的词
+  const allTags = new Set(Object.values(TAG_VOCAB).flat());
+  return {
+    intent: String(u.intent || '其他'),
+    product_tags: [...new Set(u.product_tags || [])].filter((t) => allTags.has(t)).slice(0, 3),
+    keywords: [...new Set(u.keywords || [])].map(String).filter((k) => k.length >= 2).slice(0, 4),
+    lang: String(u.lang || '其他'),
+  };
+}
+// 精准检索：意图→场景过滤 + 产品标签加权 + LLM关键词 LIKE（不再用 2-gram 切片）
+function smartRetrieve(under, message) {
+  const tagIds = under.product_tags.length
+    ? db.prepare(`SELECT id FROM tags WHERE name IN (${under.product_tags.map(() => '?').join(',')})`).all(...under.product_tags).map((r) => r.id)
+    : [];
+  const kws = under.keywords.length ? under.keywords : [message.slice(0, 20)];
+  const scored = new Map();
+  const stmt = db.prepare(
+    `SELECT t.id FROM templates t WHERE t.key LIKE ? OR t.note_zh LIKE ? OR t.gloss_zh LIKE ?
+     OR EXISTS (SELECT 1 FROM template_locales l WHERE l.template_id=t.id AND (l.title LIKE ? OR l.body LIKE ?))`
+  );
+  for (const kw of kws) {
+    const like = `%${kw}%`;
+    for (const r of stmt.all(like, like, like, like, like)) {
+      scored.set(r.id, (scored.get(r.id) || 0) + 10);
+    }
+  }
+  // 产品标签：命中一个 +30
+  if (tagIds.length) {
+    const tstmt = db.prepare(`SELECT template_id FROM template_tags WHERE tag_id IN (${tagIds.map(() => '?').join(',')})`);
+    for (const r of tstmt.all(...tagIds)) {
+      scored.set(r.template_id, (scored.get(r.template_id) || 0) + 30);
+    }
+  }
+  // 意图→场景：命中 +50
+  const scene = INTENT_SCENE[under.intent];
+  if (scene) {
+    const sstmt = db.prepare('SELECT id FROM templates WHERE scene=?');
+    for (const r of sstmt.all(scene)) {
+      if (scored.has(r.id)) scored.set(r.id, scored.get(r.id) + 50);
+    }
+  }
+  // 价格意图兜底（规则先行，LLM 没检出时）：quote +100
+  if (!scene && hasPriceIntent(message)) {
+    const qstmt = db.prepare("SELECT id FROM templates WHERE scene='quote'");
+    for (const r of qstmt.all()) {
+      if (scored.has(r.id)) scored.set(r.id, scored.get(r.id) + 100);
+    }
+  }
+  const topIds = [...scored.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map((e) => e[0]);
+  if (!topIds.length) return [];
+  const rows = db.prepare(`SELECT * FROM templates WHERE id IN (${topIds.map(() => '?').join(',')})`).all(...topIds);
+  const rank = new Map(topIds.map((id, i) => [id, i]));
+  rows.sort((a, b) => rank.get(a.id) - rank.get(b.id));
+  const varStmt = db.prepare('SELECT name,type,required,label_zh FROM template_vars WHERE template_id=? ORDER BY sort,id');
+  return rows.map((t) => ({
+    id: t.id, key: t.key, scene: t.scene, note_zh: t.note_zh, gloss_zh: t.gloss_zh || '',
+    vars: varStmt.all(t.id),
+  }));
+}
 function aiRetrieve(message) {
   const runs = String(message).match(/[\p{L}\p{N}]{2,}/gu) || [];
   const toks = new Set();
@@ -590,6 +796,15 @@ function aiRetrieve(message) {
   }
   const topIds = [...scored.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map((e) => e[0]);
   if (!topIds.length) return [];
+  // 价格意图：quote 场景加权，打破"全是 1 分"的平局
+  const priceIntent = hasPriceIntent(message);
+  if (priceIntent) {
+    const sceneOf = db.prepare('SELECT scene FROM templates WHERE id=?');
+    const boosted = [...scored.entries()]
+      .map(([id, s]) => [id, s + (sceneOf.get(id).scene === 'quote' ? 100 : 0)])
+      .sort((a, b) => b[1] - a[1]).slice(0, 8).map((e) => e[0]);
+    topIds.length = 0; topIds.push(...boosted);
+  }
   const rows = db.prepare(`SELECT * FROM templates WHERE id IN (${topIds.map(() => '?').join(',')})`).all(...topIds);
   const rank = new Map(topIds.map((id, i) => [id, i]));
   rows.sort((a, b) => rank.get(a.id) - rank.get(b.id));
@@ -623,10 +838,21 @@ app.post('/api/ai/assist', async (req, res) => {
   if (!message) return res.status(400).json({ error: '消息不能为空' });
   if (message.length > 2000) return res.status(400).json({ error: '消息过长（最多 2000 字）' });
 
-  const candidates = aiRetrieve(message);
+  // v0.10.2 新管线：LLM 理解（意图/标签/关键词）→ 精准检索；失败时回退旧检索
+  let candidates;
+  let under = null;
+  try {
+    under = await llmUnderstand(message, cfg);
+    candidates = smartRetrieve(under, message);
+  } catch (e) {
+    candidates = [];
+  }
+  if (!candidates.length) candidates = aiRetrieve(message);
   if (!candidates.length) return res.status(404).json({ error: '话术库中没有匹配的模板' });
 
   const sys = '你是话术库助手。从候选模板中选最匹配的一条，输出 JSON {template_id, slots:{name:value}}。' +
+    (under && under.intent ? `买家意图：${under.intent}。` : '') +
+    (hasPriceIntent(message) ? '买家在问价，优先选报价类模板。' : '') +
     'slot 值只能从用户消息原文提取；价格、交期若消息中没有必须留空，绝不编造。不输出其他文字。';
   const userContent = '候选模板：\n' + candidates.map((c) =>
     `- id:${c.id} key:${c.key} 场景句:${c.note_zh} 变量:${c.vars.map((v) => v.name).join(',') || '无'}`
