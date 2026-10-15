@@ -908,10 +908,10 @@ function viewStub(title, desc) {
   app.innerHTML = `${topbar(title)}<div class="page"><div class="empty">${esc(desc)}<br><br>该模块即将上线，<br>从左侧导航切到「样衣台」开始用。</div></div>`;
 }
 
-/* ---------------- AI 话术助手（v0.8.0） ---------------- */
+/* ---------------- AI 客服（v0.8.0） ---------------- */
 async function viewAi() {
   setNav('ai');
-  app.innerHTML = `${topbar('AI 话术助手')}
+  app.innerHTML = `${topbar('AI 客服')}
   <div class="page">
     <div id="ai-warn"></div>
     <textarea id="ai-msg" rows="4" placeholder="粘贴买家消息，AI 从话术库选模板并填空"></textarea>
@@ -923,7 +923,7 @@ async function viewAi() {
   try { hasKey = !!(await api('/api/admin/config')).has_key; }
   catch (e) { warn.innerHTML = `<div class="miss">配置读取失败：${esc(e.message)}</div>`; }
   if (!hasKey) {
-    warn.innerHTML = `<div class="card ai-warnbox"><div>请先配置模型服务，才能使用 AI 话术助手。</div><button class="btn ghost" id="ai-open-admin">去配置</button></div>`;
+    warn.innerHTML = `<div class="card ai-warnbox"><div>请先配置模型服务，才能使用 AI 客服。</div><button class="btn ghost" id="ai-open-admin">去配置</button></div>`;
     go.disabled = true; go.classList.add('dim');
     const oa = $('#ai-open-admin');
     if (oa) oa.onclick = () => openAdminModal();
@@ -949,7 +949,7 @@ function aiRenderOptions(d, message) {
     <div class="card tappable" data-tid="${o.template_id}" style="margin-bottom:8px">
       <div class="rowline" style="gap:6px;margin-bottom:4px">
         <span class="tchip">${esc(o.template_key)}</span>
-        ${o.recommended ? '<span class="tchip" style="background:var(--accent);color:var(--on-accent)">推荐</span>' : ''}
+        ${o.recommended ? '<span class="tchip hot">推荐</span>' : ''}
         <span class="muted" style="font-size:12px">${esc(o.note_zh || '')}</span>
       </div>
       <div style="font-size:13px;color:var(--muted)">${esc(o.preview)}</div>
