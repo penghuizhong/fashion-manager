@@ -16,6 +16,24 @@ db.prepare(`INSERT OR IGNORE INTO snippets (key,lang,title_zh,body) VALUES ('sig
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 app.use(express.json({ limit: '25mb' }));
+// 任务29: AI 接口限流（防刷 API 额度）
+const aiRate = new Map(); // ip -> [timestamps]
+function aiRateLimit(req, res, next) {
+  const ip = req.ip || req.connection.remoteAddress || 'unknown';
+  const now = Date.now();
+  const win = aiRate.get(ip) || [];
+  const recent = win.filter((t) => now - t < 60000);
+  if (recent.length >= 10) return res.status(429).json({ error: '请求太频繁，请稍后再试' });
+  recent.push(now);
+  aiRate.set(ip, recent);
+  next();
+}
+// message 长度校验
+function aiMsgCheck(req, res, next) {
+  const msg = (req.body && req.body.message) || '';
+  if (msg.length > 2000) return res.status(400).json({ error: '消息太长（最多2000字）' });
+  next();
+}
 
 const J = {
   parse: (s, fb) => { try { const v = JSON.parse(s); return v ?? fb; } catch { return fb; } },
@@ -29,7 +47,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.19',
+  version: '0.10.20',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -845,7 +863,11 @@ const TAG_VOCAB = {
   '面料属性': ['缎面','金属缎','蕾丝','网纱','雪纺','丝绒','绉布','羊毛混纺','真丝','粘纤','聚酯纤维','高支羊毛'],
   '颜色': ['藏青','黑色','白色','灰色','酒红','鼠尾草绿','祖母绿','粉色'],
 };
-const INTENT_SCENE = { '问价': 'quote', '打招呼': 'first', '跟进': 'nudge' };
+const INTENT_SCENE = {
+  '问价': 'quote', '问MOQ': 'quote', '问交期': 'quote', '问运费': 'quote',
+  '问样品': 'ask', '问定制': 'ask', '问产品': 'ask',
+  '打招呼': 'first', '跟进': 'nudge',
+};
 const understandCache = new Map(); // message -> {data, ts}
 async function llmUnderstand(message, cfg) {
   const ck = message.trim();
@@ -922,8 +944,8 @@ function smartRetrieve(under, message) {
       if (scored.has(r.id)) scored.set(r.id, scored.get(r.id) + 50);
     }
   }
-  // 价格意图兜底（规则先行，LLM 没检出时）：quote +100
-  if (!scene && hasPriceIntent(message)) {
+  // 价格意图兜底：LLM判其他或没检出场景时，关键词才生效
+  if ((!scene || under.intent === '其他') && hasPriceIntent(message)) {
     const qstmt = db.prepare("SELECT id FROM templates WHERE scene='quote'");
     for (const r of qstmt.all()) {
       if (scored.has(r.id)) scored.set(r.id, scored.get(r.id) + 100);
@@ -1003,7 +1025,7 @@ function aiGuardrails(tpl, llmSlots, message) {
   return { slots, missing };
 }
 
-app.post('/api/ai/assist', async (req, res) => {
+app.post('/api/ai/assist', aiRateLimit, aiMsgCheck, async (req, res) => {
   const cfg = getAdminConfig(true);
   if (!cfg.api_key) return res.status(400).json({ error: '未配置模型服务' });
   const message = String((req.body && req.body.message) || '').trim();
@@ -1031,7 +1053,7 @@ app.post('/api/ai/assist', async (req, res) => {
   } else {
     const sys = '你是话术库助手。从候选模板中选最匹配的3条，按相关度排序，输出 JSON {picks:[{template_id}]}。' +
       (under && under.intent ? `买家意图：${under.intent}。` : '') +
-      (hasPriceIntent(message) ? '买家在问价，优先选报价类模板。' : '') +
+      ((under && under.intent !== '问价' && hasPriceIntent(message)) ? '买家在问价，优先选报价类模板。' : '') +
       '不输出其他文字。';
     const userContent = '候选模板：\n' + candidates.map((c) =>
       `- id:${c.id} key:${c.key} 场景句:${c.note_zh} 变量:${c.vars.map((v) => v.name).join(',') || '无'}`
@@ -1083,7 +1105,7 @@ app.post('/api/ai/assist', async (req, res) => {
 });
 
 // 选中某条候选后：抽 slot + 护栏 + 渲染
-app.post('/api/ai/assist/select', async (req, res) => {
+app.post('/api/ai/assist/select', aiRateLimit, aiMsgCheck, async (req, res) => {
   const { template_id, message } = req.body || {};
   if (!template_id || !message) return res.status(400).json({ error: '缺少参数' });
   const cfg = getAdminConfig(true);
