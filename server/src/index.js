@@ -47,7 +47,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.20',
+  version: '0.10.21',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -868,11 +868,16 @@ const INTENT_SCENE = {
   '问样品': 'ask', '问定制': 'ask', '问产品': 'ask',
   '打招呼': 'first', '跟进': 'nudge',
 };
-const understandCache = new Map(); // message -> {data, ts}
 async function llmUnderstand(message, cfg) {
   const ck = message.trim();
-  const hit = understandCache.get(ck);
-  if (hit && Date.now() - hit.ts < 5 * 60 * 1000) return hit.data;
+  // 任务34: SQLite 持久化缓存（5分钟 TTL）
+  try {
+    const row = db.prepare("SELECT result_json, created_at FROM ai_understand_cache WHERE msg_hash=?").get(ck);
+    if (row) {
+      const age = (Date.now() - new Date(row.created_at.replace(' ', 'T')).getTime()) / 1000;
+      if (age < 300) return JSON.parse(row.result_json);
+    }
+  } catch (e) {}
   const model = cfg.backend_model || cfg.chat_model;
   if (!model) throw new Error('未配置后台模型');
   const vocabStr = Object.entries(TAG_VOCAB).map(([g, ws]) => `${g}：${ws.join('、')}`).join('\n');
@@ -908,8 +913,12 @@ async function llmUnderstand(message, cfg) {
     keywords: [...new Set(u.keywords || [])].map(String).filter((k) => k.length >= 2).slice(0, 4),
     lang: String(u.lang || '其他'),
   };
-  understandCache.set(ck, { data: _out, ts: Date.now() });
-  if (understandCache.size > 200) { const k = understandCache.keys().next().value; understandCache.delete(k); }
+  try {
+    db.prepare('INSERT OR REPLACE INTO ai_understand_cache (msg_hash, result_json) VALUES (?,?)')
+      .run(ck, JSON.stringify(_out));
+    // 清理过期（保留最近 500 条）
+    db.exec("DELETE FROM ai_understand_cache WHERE msg_hash NOT IN (SELECT msg_hash FROM ai_understand_cache ORDER BY created_at DESC LIMIT 500)");
+  } catch (e) {}
   return _out;
 }
 // 精准检索：意图→场景过滤 + 产品标签加权 + LLM关键词 LIKE（不再用 2-gram 切片）
@@ -1038,6 +1047,13 @@ app.post('/api/ai/assist', aiRateLimit, aiMsgCheck, async (req, res) => {
   try {
     under = await llmUnderstand(message, cfg);
     candidates = smartRetrieve(under, message);
+    // 任务31: 空标签监控
+    if (under && !under.product_tags.length && (under.keywords || []).length) {
+      try {
+        db.prepare('INSERT INTO ai_empty_tag_log (message, lang, keywords) VALUES (?,?,?)')
+          .run(message.slice(0, 500), under.lang || '', (under.keywords || []).join(','));
+      } catch (e) {}
+    }
   } catch (e) {
     candidates = [];
   }
@@ -1081,22 +1097,45 @@ app.post('/api/ai/assist', aiRateLimit, aiMsgCheck, async (req, res) => {
       top3 = ids.map((id) => candidates.find((c) => c.id === id)).filter(Boolean);
     } catch (e) {
       const cause = e.cause ? ` (cause: ${e.cause.message || e.cause.code || e.cause})` : '';
-      return res.status(500).json({ error: `AI 调用失败：${e.message || e}${cause}` });
+      console.error('[ai/assist] LLM error:', e.message || e, cause);
+      return res.status(500).json({ error: 'AI 服务暂时不可用，请稍后再试' });
     }
   }
   if (!top3.length) top3 = candidates.slice(0, 3);
-  // 去重场景：如果前3场景全一样，从后面补一个不同场景的
-  const scenes = new Set(top3.map((c) => c.scene));
-  if (scenes.size === 1 && candidates.length > 3) {
-    const alt = candidates.slice(3).find((c) => c.scene !== top3[0].scene);
-    if (alt) top3[2] = alt;
+  // 任务36: MMR 多样性排序（相关性 0.7 + 场景多样性 0.3）
+  if (top3.length >= 3) {
+    const maxScore = Math.max(...top3.map((c) => c.score || 0), 1);
+    const picked = [top3[0]];
+    const rest = top3.slice(1);
+    while (picked.length < 3 && rest.length) {
+      let bestIdx = 0, bestVal = -Infinity;
+      rest.forEach((c, idx) => {
+        const rel = (c.score || 0) / maxScore;
+        const sameScene = picked.filter((p) => p.scene === c.scene).length;
+        const div = 1 - (sameScene / picked.length) * 0.5;
+        const mmr = 0.7 * rel + 0.3 * div;
+        if (mmr > bestVal) { bestVal = mmr; bestIdx = idx; }
+      });
+      picked.push(rest.splice(bestIdx, 1)[0]);
+    }
+    top3 = picked;
   }
   const options = top3.map((c, i) => {
     const full = getTemplateFull(c.id);
-    const preview = (full.gloss_zh || '').slice(0, 80);
+    const text = full.gloss_zh || '';
+    // 任务35: 预览优先保留含数字/价格/交期的句子
+    let preview;
+    const sentences = text.split(/(?<=[。！？])/);
+    const keySent = sentences.find((st) => /\d|价格|报价|\$|交期|天|运费/.test(st));
+    if (keySent) {
+      preview = keySent.slice(0, 80);
+      if (text.length > 80) preview += '…';
+    } else {
+      preview = text.slice(0, 80) + (text.length > 80 ? '…' : '');
+    }
     return {
       template_id: c.id, template_key: c.key, note_zh: c.note_zh, scene: c.scene,
-      preview: preview + (full.gloss_zh && full.gloss_zh.length > 80 ? '…' : ''),
+      preview,
       recommended: i === 0,
       has_vars: (c.vars || []).length > 0,
     };
@@ -1117,7 +1156,10 @@ app.post('/api/ai/assist/select', aiRateLimit, aiMsgCheck, async (req, res) => {
   let slots = {};
   if (tpl.vars.length) {
     // 有变量时调 LLM 抽 slot
-    const sys = '从买家消息中提取模板变量值，输出 JSON {slots:{name:value}}。值必须是原文子串；价格、交期没有就留空，绝不编造。';
+    const sys = '从买家消息中提取模板变量值，输出 JSON {slots:{name:value}}。值必须是原文子串；价格、交期没有就留空，绝不编造。\n' +
+      '示例1：变量[price] 消息"I want 2 pieces, how much?" → {"slots":{"price":""}}（消息中无价格，留空）\n' +
+      '示例2：变量[color,size] 消息"Je veux la robe rouge en taille M" → {"slots":{"color":"rouge","size":"M"}}\n' +
+      '示例3：变量[quantity] 消息"أريد ٥ قطع" → {"slots":{"quantity":"٥ قطع"}}';
     const userContent = `变量：${tpl.vars.map((v) => v.name).join(',')}\n买家消息：${message}`;
     try {
       const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
@@ -1142,6 +1184,12 @@ app.post('/api/ai/assist/select', aiRateLimit, aiMsgCheck, async (req, res) => {
     } catch (e) { /* 抽 slot 失败就用空 */ }
   }
   const candidates = [{ ...tpl, id: tpl.id }];
+  // 任务33: 记录用户选择（rank 从请求来，前端传）
+  try {
+    const rank = Number((req.body || {}).rank) || 0;
+    db.prepare('INSERT INTO ai_select_log (template_id, template_key, rank, message) VALUES (?,?,?,?)')
+      .run(tpl.id, tpl.key || '', rank, String(message).slice(0, 300));
+  } catch (e) {}
   return finishAssist(res, tpl.id, slots, message, cfg, candidates);
 });
 
