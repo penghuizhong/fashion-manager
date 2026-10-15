@@ -29,7 +29,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.9',
+  version: '0.10.10',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -242,22 +242,116 @@ ${items || '· （无）'}
 
 function seedV4() {
   const row = db.prepare(`SELECT value FROM app_config WHERE key='seed_version'`).get();
+  // v5 迁移：模板 key 重命名（v21-xxx → SCENE-xxx），UPDATE 保 ID，标签关联不受影响
   if (row && row.value === 'v4') {
-    // 已是 v4：回填空 gloss_zh（兼容），不重灌
-    const rows = db.prepare(`SELECT id, key FROM templates WHERE origin='seed' AND (gloss_zh IS NULL OR gloss_zh='')`).all();
-    if (rows.length) {
-      const upd = db.prepare(`UPDATE templates SET gloss_zh=? WHERE id=?`);
-      let c = 0;
-      db.transaction(() => {
-        for (const r of rows) {
-          const tpl = TEMPLATES.find((x) => x.key === r.key);
-          if (tpl && tpl.gloss_zh) { upd.run(tpl.gloss_zh, r.id); c++; }
-        }
-      })();
-      if (c) console.log(`[seed] 回填 gloss_zh：${c} 个模板`);
-    }
+    const KEYMAP = {
+  'v21-001': 'ASK-001',
+  'v21-002': 'ASK-002',
+  'v21-003': 'ASK-003',
+  'v21-004': 'ASK-004',
+  'v21-005': 'ASK-005',
+  'v21-006': 'ASK-006',
+  'v21-007': 'ASK-007',
+  'v21-008': 'ASK-008',
+  'v21-009': 'ASK-009',
+  'v21-010': 'ASK-010',
+  'v21-011': 'ASK-011',
+  'v21-012': 'QUOTE-001',
+  'v21-013': 'QUOTE-002',
+  'v21-014': 'QUOTE-003',
+  'v21-015': 'QUOTE-004',
+  'v21-016': 'QUOTE-005',
+  'v21-017': 'QUOTE-006',
+  'v21-018': 'QUOTE-007',
+  'v21-019': 'QUOTE-008',
+  'v21-020': 'QUOTE-009',
+  'v21-021': 'QUOTE-010',
+  'v21-022': 'QUOTE-011',
+  'v21-023': 'QUOTE-012',
+  'v21-024': 'QUOTE-013',
+  'v21-025': 'QUOTE-014',
+  'v21-026': 'ASK-012',
+  'v21-027': 'ASK-013',
+  'v21-028': 'ASK-014',
+  'v21-029': 'ASK-015',
+  'v21-030': 'ASK-016',
+  'v21-031': 'ASK-017',
+  'v21-032': 'ASK-018',
+  'v21-033': 'ASK-019',
+  'v21-034': 'ASK-020',
+  'v21-035': 'ASK-021',
+  'v21-036': 'ASK-022',
+  'v21-037': 'ASK-023',
+  'v21-038': 'ASK-024',
+  'v21-039': 'ASK-025',
+  'v21-040': 'ASK-026',
+  'v21-041': 'ASK-027',
+  'v21-042': 'ASK-028',
+  'v21-043': 'ASK-029',
+  'v21-044': 'ASK-030',
+  'v21-045': 'ASK-031',
+  'v21-046': 'ASK-032',
+  'v21-047': 'ASK-033',
+  'v21-048': 'ASK-034',
+  'v21-049': 'ASK-035',
+  'v21-050': 'ASK-036',
+  'v21-051': 'ASK-037',
+  'v21-052': 'ASK-038',
+  'v21-053': 'ASK-039',
+  'v21-054': 'ASK-040',
+  'v21-055': 'ASK-041',
+  'v21-056': 'ASK-042',
+  'v21-057': 'ASK-043',
+  'v21-058': 'ASK-044',
+  'v21-059': 'ASK-045',
+  'v21-060': 'ASK-046',
+  'v21-061': 'ASK-047',
+  'v21-062': 'ASK-048',
+  'v21-063': 'FIRST-001',
+  'v21-064': 'FIRST-002',
+  'v21-065': 'FIRST-003',
+  'v21-066': 'FIRST-004',
+  'v21-067': 'FIRST-005',
+  'v21-068': 'FIRST-006',
+  'v21-069': 'FIRST-007',
+  'v21-070': 'FIRST-008',
+  'nudge-3step': 'NUDGE-001',
+  'first-design-4q': 'FIRST-009',
+  'ask-sample-4q': 'ASK-049',
+  'quote-multi-sample': 'QUOTE-015',
+  'ask-change-fabric': 'ASK-050',
+  'ask-preship-confirm': 'ASK-051',
+  'ask-taxid-address': 'ASK-052',
+  'quote-tuxedo-fabric': 'QUOTE-016',
+  'first-which-product': 'FIRST-010',
+  'ask-suit-3piece': 'ASK-053',
+  'ask-suit-es': 'ASK-054',
+  'ask-size-no-style': 'ASK-055',
+  'quote-tuxedo-sample': 'QUOTE-017',
+  'ask-which-jacket': 'ASK-056',
+  'first-hi-only': 'FIRST-011',
+  'ask-mermaid-gown': 'ASK-057',
+  'ask-metallic-mermaid': 'ASK-058',
+  'ask-lace-gown-de': 'ASK-059',
+  'first-halter-custom': 'FIRST-012',
+  'quote-dress-ar': 'QUOTE-018',
+  'first-pic-inquiry': 'FIRST-013',
+  'quote-tuxedo-fr': 'QUOTE-019'
+    };
+    const upd = db.prepare(`UPDATE templates SET key=?, updated_at=? WHERE key=? AND origin='seed'`);
+    let c = 0;
+    const t = now();
+    db.transaction(() => {
+      for (const [oldK, newK] of Object.entries(KEYMAP)) {
+        const r = upd.run(newK, t, oldK);
+        if (r.changes) c++;
+      }
+      db.prepare(`UPDATE app_config SET value='v5' WHERE key='seed_version'`).run();
+    })();
+    console.log(`[seed] v4→v5 key重命名：${c} 个模板`);
     return;
   }
+  if (row && row.value === 'v5') return;
   // v0.9.0：话术库 v2.1 全量替换 —— 只动 origin='seed' 的模板与 snippets，
   // 自定义（custom）/legacy 模板、款档案/样衣/报价等业务表不受影响
   const t = now();
@@ -285,7 +379,7 @@ function seedV4() {
       (tpl.vars || []).forEach((v, i) =>
         insV.run(id, v.name, v.type || 'text', v.required ? 1 : 0, v.label_zh || v.name, v.sample || '', i));
     }
-    db.prepare(`INSERT OR REPLACE INTO app_config (key,value,updated_at) VALUES ('seed_version','v4',?)`).run(t);
+    db.prepare(`INSERT OR REPLACE INTO app_config (key,value,updated_at) VALUES ('seed_version','v5',?)`).run(t);
   })();
   console.log(`[seed] v4 话术库 v2.1 全量重灌：${TEMPLATES.length} 个模板 / ${SNIPPETS.length} 个共享片段`);
 }
