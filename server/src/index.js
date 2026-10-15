@@ -29,7 +29,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.16',
+  version: '0.10.17',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -846,7 +846,11 @@ const TAG_VOCAB = {
   '颜色': ['藏青','黑色','白色','灰色','酒红','鼠尾草绿','祖母绿','粉色'],
 };
 const INTENT_SCENE = { '问价': 'quote', '打招呼': 'first', '跟进': 'nudge' };
+const understandCache = new Map(); // message -> {data, ts}
 async function llmUnderstand(message, cfg) {
+  const ck = message.trim();
+  const hit = understandCache.get(ck);
+  if (hit && Date.now() - hit.ts < 5 * 60 * 1000) return hit.data;
   const model = cfg.backend_model || cfg.chat_model;
   if (!model) throw new Error('未配置后台模型');
   const vocabStr = Object.entries(TAG_VOCAB).map(([g, ws]) => `${g}：${ws.join('、')}`).join('\n');
@@ -876,12 +880,15 @@ async function llmUnderstand(message, cfg) {
   const u = JSON.parse(text);
   // 清洗：product_tags 只保留词表内的词
   const allTags = new Set(Object.values(TAG_VOCAB).flat());
-  return {
+  const _out = {
     intent: String(u.intent || '其他'),
     product_tags: [...new Set(u.product_tags || [])].filter((t) => allTags.has(t)).slice(0, 3),
     keywords: [...new Set(u.keywords || [])].map(String).filter((k) => k.length >= 2).slice(0, 4),
     lang: String(u.lang || '其他'),
   };
+  understandCache.set(ck, { data: _out, ts: Date.now() });
+  if (understandCache.size > 200) { const k = understandCache.keys().next().value; understandCache.delete(k); }
+  return _out;
 }
 // 精准检索：意图→场景过滤 + 产品标签加权 + LLM关键词 LIKE（不再用 2-gram 切片）
 function smartRetrieve(under, message) {
