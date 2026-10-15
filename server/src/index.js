@@ -1,27 +1,11 @@
 import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import dns from 'node:dns';
-import { Agent } from 'undici';
 import { fileURLToPath } from 'node:url';
 import db, { now, DATA_DIR } from './db.js';
 import { nextStyleNo, canTransition, STATUS_LABEL, CATEGORIES, SEASONS } from './styleNo.js';
 import { SNIPPETS, TEMPLATES } from './seedTemplatesV4.js';
 import { applyTagRules } from './seedTagRules.js';
-// 生产环境 DNS 加固：VPS 的 getaddrinfo 只返回 IPv6（v6 出站不通），
-// 此处实现应用层 Happy Eyeballs——先试 IPv4，不通再试 IPv6，不依赖系统 DNS 行为。
-// 不 hardcode IP，保留 DNS 的高可用与负载均衡。
-const aiAgent = new Agent({
-  connect: {
-    lookup: (hostname, opts, cb) => {
-      dns.lookup(hostname, { ...opts, family: 4 }, (e4, a4, f4) => {
-        if (!e4) return cb(null, a4, f4);
-        dns.lookup(hostname, { ...opts, family: 6 }, cb);
-      });
-    },
-  },
-});
-const aiFetch = (url, init) => fetch(url, { dispatcher: aiAgent, ...init });
 const LANGS = ['EN', 'ES', 'PT', 'FR', 'DE', 'AR'];
 const SCENES = ['first', 'ask', 'quote', 'nudge'];
 
@@ -45,7 +29,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.4',
+  version: '0.10.5',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -683,7 +667,7 @@ app.get('/api/admin/models', async (req, res) => {
   if (!cfg.api_key) return res.status(400).json({ error: '未配置 API Key' });
   try {
     const url = cfg.base_url.replace(/\/+$/, '') + '/models';
-    const r = await aiFetch(url, {
+    const r = await fetch(url, {
       headers: { 'Authorization': `Bearer ${cfg.api_key}` },
       signal: AbortSignal.timeout(20000),
     });
@@ -703,7 +687,7 @@ app.post('/api/admin/test', async (req, res) => {
   if (!model) return res.status(400).json({ error: '未选择模型' });
   try {
     const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
-    const r = await aiFetch(url, {
+    const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
       body: JSON.stringify({
@@ -762,7 +746,7 @@ async function llmUnderstand(message, cfg) {
     '"lang":"EN|FR|ES|PT|AR|RU|DE|ZH|其他"}' +
     '\n产品词表：\n' + vocabStr;
   const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
-  const r = await aiFetch(url, {
+  const r = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
     body: JSON.stringify({
@@ -928,7 +912,7 @@ app.post('/api/ai/assist', async (req, res) => {
   let llm;
   try {
     const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
-    const r = await aiFetch(url, {
+    const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
       body: JSON.stringify({
