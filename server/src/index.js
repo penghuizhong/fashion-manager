@@ -29,7 +29,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.14',
+  version: '0.10.15',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1015,48 +1015,105 @@ app.post('/api/ai/assist', async (req, res) => {
   if (!candidates.length) candidates = aiRetrieve(message);
   if (!candidates.length) return res.status(404).json({ error: '话术库中没有匹配的模板' });
 
-  // 短路优化：Top-1 分数断层领先且无变量可填时，直接采用，跳过 LLM 选中（省一次模型调用）
+  // Top-3 逻辑：Top-1 断层领先时直接取前3（省 LLM）；否则 LLM 从候选中选3个
   const top1 = candidates[0];
   const top2score = candidates.length > 1 ? (candidates[1].score || 0) : 0;
-  if ((top1.score || 0) - top2score >= 30 && (!top1.vars || !top1.vars.length)) {
-    return finishAssist(res, top1.id, {}, message, cfg, candidates);
+  let top3;
+  if ((top1.score || 0) - top2score >= 30) {
+    top3 = candidates.slice(0, 3);
+  } else {
+    const sys = '你是话术库助手。从候选模板中选最匹配的3条，按相关度排序，输出 JSON {picks:[{template_id}]}。' +
+      (under && under.intent ? `买家意图：${under.intent}。` : '') +
+      (hasPriceIntent(message) ? '买家在问价，优先选报价类模板。' : '') +
+      '不输出其他文字。';
+    const userContent = '候选模板：\n' + candidates.map((c) =>
+      `- id:${c.id} key:${c.key} 场景句:${c.note_zh} 变量:${c.vars.map((v) => v.name).join(',') || '无'}`
+    ).join('\n') + `\n买家消息：${message}`;
+    try {
+      const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
+        body: JSON.stringify({
+          model: cfg.chat_model,
+          response_format: { type: 'json_object' },
+          messages: [{ role: 'system', content: sys }, { role: 'user', content: userContent }],
+          temperature: 0.2,
+          max_tokens: 300,
+          enable_thinking: false,
+        }),
+        signal: AbortSignal.timeout(45000),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error((d.error && d.error.message) || d.message || `模型服务返回 ${r.status}`);
+      const text = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
+      const llm = JSON.parse(text);
+      const ids = (llm.picks || []).map((p) => Number(p.template_id)).filter((id) => candidates.find((c) => c.id === id));
+      top3 = ids.map((id) => candidates.find((c) => c.id === id)).filter(Boolean);
+    } catch (e) {
+      const cause = e.cause ? ` (cause: ${e.cause.message || e.cause.code || e.cause})` : '';
+      return res.status(500).json({ error: `AI 调用失败：${e.message || e}${cause}` });
+    }
   }
-
-  const sys = '你是话术库助手。从候选模板中选最匹配的一条，输出 JSON {template_id, slots:{name:value}}。' +
-    (under && under.intent ? `买家意图：${under.intent}。` : '') +
-    (hasPriceIntent(message) ? '买家在问价，优先选报价类模板。' : '') +
-    'slot 值只能从用户消息原文提取；价格、交期若消息中没有必须留空，绝不编造。不输出其他文字。';
-  const userContent = '候选模板：\n' + candidates.map((c) =>
-    `- id:${c.id} key:${c.key} 场景句:${c.note_zh} 变量:${c.vars.map((v) => v.name).join(',') || '无'}`
-  ).join('\n') + `\n买家消息：${message}`;
-
-  let llm;
-  try {
-    const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
-      body: JSON.stringify({
-        model: cfg.chat_model,
-        response_format: { type: 'json_object' },
-        messages: [{ role: 'system', content: sys }, { role: 'user', content: userContent }],
-        temperature: 0.2,
-        max_tokens: 300,
-        enable_thinking: false,
-      }),
-      signal: AbortSignal.timeout(45000),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((d.error && d.error.message) || d.message || `模型服务返回 ${r.status}`);
-    const text = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
-    llm = JSON.parse(text);
-  } catch (e) {
-    const cause = e.cause ? ` (cause: ${e.cause.message || e.cause.code || e.cause})` : '';
-    return res.status(500).json({ error: `AI 调用失败：${e.message || e}${cause}` });
+  if (!top3.length) top3 = candidates.slice(0, 3);
+  // 去重场景：如果前3场景全一样，从后面补一个不同场景的
+  const scenes = new Set(top3.map((c) => c.scene));
+  if (scenes.size === 1 && candidates.length > 3) {
+    const alt = candidates.slice(3).find((c) => c.scene !== top3[0].scene);
+    if (alt) top3[2] = alt;
   }
+  const options = top3.map((c, i) => {
+    const full = getTemplateFull(c.id);
+    const preview = (full.gloss_zh || '').slice(0, 80);
+    return {
+      template_id: c.id, template_key: c.key, note_zh: c.note_zh, scene: c.scene,
+      preview: preview + (full.gloss_zh && full.gloss_zh.length > 80 ? '…' : ''),
+      recommended: i === 0,
+      has_vars: (c.vars || []).length > 0,
+    };
+  });
+  res.json({ ok: true, options, message });
+});
 
-  const templateId = Number(llm && llm.template_id);
-  return finishAssist(res, templateId, (llm && llm.slots) || {}, message, cfg, candidates);
+// 选中某条候选后：抽 slot + 护栏 + 渲染
+app.post('/api/ai/assist/select', async (req, res) => {
+  const { template_id, message } = req.body || {};
+  if (!template_id || !message) return res.status(400).json({ error: '缺少参数' });
+  const cfg = getAIConfig();
+  if (!cfg.api_key) return res.status(400).json({ error: '未配置 API Key' });
+  const tpl = db.prepare('SELECT * FROM templates WHERE id=?').get(Number(template_id));
+  if (!tpl) return res.status(404).json({ error: '模板不存在' });
+  const varStmt = db.prepare('SELECT name,type,required,label_zh FROM template_vars WHERE template_id=? ORDER BY sort,id');
+  tpl.vars = varStmt.all(tpl.id);
+  let slots = {};
+  if (tpl.vars.length) {
+    // 有变量时调 LLM 抽 slot
+    const sys = '从买家消息中提取模板变量值，输出 JSON {slots:{name:value}}。值必须是原文子串；价格、交期没有就留空，绝不编造。';
+    const userContent = `变量：${tpl.vars.map((v) => v.name).join(',')}\n买家消息：${message}`;
+    try {
+      const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
+        body: JSON.stringify({
+          model: cfg.chat_model,
+          response_format: { type: 'json_object' },
+          messages: [{ role: 'system', content: sys }, { role: 'user', content: userContent }],
+          temperature: 0.1,
+          max_tokens: 200,
+          enable_thinking: false,
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        const text = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '{}';
+        slots = JSON.parse(text).slots || {};
+      }
+    } catch (e) { /* 抽 slot 失败就用空 */ }
+  }
+  const candidates = [{ ...tpl, id: tpl.id }];
+  return finishAssist(res, tpl.id, slots, message, cfg, candidates);
 });
 
 // 短路/正常流程共用的收尾：护栏检查 + 渲染 + 返回
