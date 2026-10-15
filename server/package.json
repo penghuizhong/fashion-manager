@@ -9,5 +9,5 @@
     "start": "node src/index.js"
   },
   "type": "module",
-  "version": "0.10.19"
+  "version": "0.10.20"
 }
