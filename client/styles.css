@@ -2,12 +2,14 @@
   --bg:#f7f7f8; --surface:#ffffff; --surface2:#f1f1f3;
   --text:#17171a; --muted:#8a8a93; --border:#e4e4e7;
   --accent:#17171a; --on-accent:#ffffff; --danger:#c2402e;
+  --selected:rgba(0,0,0,.07); --accent-hover:#2f2f31;
   --radius:12px;
 }
 @media (prefers-color-scheme: dark){
   :root{ --bg:#101013; --surface:#18181c; --surface2:#222228;
     --text:#f2f2f4; --muted:#9a9aa3; --border:#2c2c33;
-    --accent:#f2f2f4; --on-accent:#101013; }
+    --accent:#f2f2f4; --on-accent:#101013;
+    --selected:rgba(255,255,255,.12); --accent-hover:#d7d7d9; }
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
@@ -47,9 +49,11 @@ display:flex;align-items:center;justify-content:space-between}
 /* 管理弹窗二级导航（横向滑动） */
 .admin-tabs{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 10px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
 .admin-tabs::-webkit-scrollbar{display:none}
-.atab{flex:0 0 auto;border:1px solid var(--border);background:var(--surface2);color:var(--text);
-border-radius:16px;padding:6px 16px;font-size:13px;cursor:pointer}
-.atab.on{background:var(--text);color:var(--surface);border-color:var(--text);font-weight:700}
+.atab{flex:0 0 auto;border:none;background:transparent;color:var(--muted);
+  border-radius:999px;padding:9px 16px;font-size:13px;font-weight:500;
+  transition:background .18s,color .18s;}
+.atab:hover{color:var(--text);}
+.atab.on{background:var(--selected);color:var(--text);font-weight:600}
 /* AI 助手页 */
 .ai-warnbox{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
 .backdrop{display:none}
@@ -124,8 +128,11 @@ label.fl{display:block;font-size:12px;color:var(--muted);margin:10px 0 5px}
 
 /* 按钮 */
 .btn{background:var(--accent);color:var(--on-accent);border:none;border-radius:11px;
-  padding:11px;font-size:14px;font-weight:700;width:100%}
-.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+  padding:11px;font-size:14px;font-weight:700;width:100%;
+  transition:background .18s,transform .12s;}
+.btn:hover:not(:disabled){background:var(--accent-hover);}
+.btn:active:not(:disabled){transform:scale(.98);}
+.btn.ghost{background:var(--selected);color:var(--text);border:none;font-weight:600}
 .btn.dim{opacity:.45}
 .chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
 .chip{font-size:12px;border:1px solid var(--border);border-radius:20px;padding:6px 13px;
