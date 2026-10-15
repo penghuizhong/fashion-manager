@@ -1,4 +1,4 @@
-/* 服装管理平台 MVP 前端：vanilla JS + hash 路由，手机端优先 */
+/* 服装管理平台前端：vanilla JS + hash 路由，手机端优先 */
 const $ = (s, el) => (el || document).querySelector(s);
 const app = $('#app'), nav = $('#sidenav'), root = $('#app-root');
 let CFG = { categories: {}, seasons: {}, statusLabel: {} };
@@ -905,7 +905,7 @@ if (isEdit) bindEdit(); else bindView();
 function viewStub(title, desc) {
   const map = { '设计台': 'design', '样衣台': 'sample', '制版台': 'pattern' };
   setNav(map[title]);
-  app.innerHTML = `${topbar(title)}<div class="page"><div class="empty">${esc(desc)}<br><br>当前 MVP 只做样衣台，<br>从左侧导航切到「样衣台」开始用。</div></div>`;
+  app.innerHTML = `${topbar(title)}<div class="page"><div class="empty">${esc(desc)}<br><br>该模块即将上线，<br>从左侧导航切到「样衣台」开始用。</div></div>`;
 }
 
 /* ---------------- AI 话术助手（v0.8.0） ---------------- */
@@ -1161,6 +1161,8 @@ async function bindAdmin() {
   if (window.matchMedia('(max-width:768px)').matches) root.classList.remove('sidebar-open');
   (async () => {
   try { CFG = await api('/api/config'); } catch (e) { app.innerHTML = `<div class="empty">后端连接失败：${esc(e.message)}<br>请确认 server 已启动（npm start）</div>`; return; }
+  const sv = document.getElementById('side-ver');
+  if (sv && CFG.version) sv.textContent = 'v' + CFG.version;
   route();
   })();
 })();
