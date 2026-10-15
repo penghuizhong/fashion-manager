@@ -980,15 +980,48 @@ function adminModelHTML() {
     <input type="password" id="adm-key" placeholder="未设置，请输入" autocomplete="off">
     <label class="fl">Base URL</label>
     <input id="adm-base" autocomplete="off">
-    <label class="fl">对话模型</label>
-    <input id="adm-chat" autocomplete="off">
-    <label class="fl">向量模型</label>
-    <input id="adm-emb" autocomplete="off">
-    <label class="fl">视觉模型</label>
-    <input id="adm-vision" autocomplete="off">
+    <div class="btnrow" style="margin:8px 0">
+      <button class="btn ghost" id="adm-models" style="flex:1">刷新模型列表</button>
+      <button class="btn ghost" id="adm-test" style="flex:1">测试连通性</button>
+    </div>
+    <div class="muted" id="adm-models-msg" style="font-size:12px;margin-bottom:8px"></div>
+    <label class="fl">对话模型 <span class="muted">（话术选择用）</span></label>
+    <select id="adm-chat"><option value="">请先刷新模型列表</option></select>
+    <label class="fl">后台模型 <span class="muted">（关键词理解用，可选便宜快的）</span></label>
+    <select id="adm-backend"><option value="">请先刷新模型列表</option></select>
+    <label class="fl">视觉模型 <span class="muted">（识图用，千问多模态走同接口）</span></label>
+    <select id="adm-vision"><option value="">请先刷新模型列表</option></select>
+    <label class="fl">向量模型 <span class="muted">（暂未用，预留）</span></label>
+    <input id="adm-emb" autocomplete="off" placeholder="如 text-embedding-v4">
     <button class="btn" id="adm-save" style="width:100%;margin-top:12px">保存</button>
     <div class="miss" id="adm-msg"></div>
   </div>`;
+}
+let adminModelList = [];
+async function adminLoadModels() {
+  const msg = document.getElementById('adm-models-msg');
+  const btn = document.getElementById('adm-models');
+  if (msg) msg.textContent = '拉取中…';
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api('/api/admin/models');
+    adminModelList = r.models || [];
+    if (msg) msg.textContent = `共 ${adminModelList.length} 个可用模型`;
+    const fill = (id, val) => {
+      const sel = document.getElementById(id);
+      if (!sel) return;
+      sel.innerHTML = '<option value="">不指定</option>' + adminModelList.map((m) =>
+        `<option value="${esc(m)}" ${m === val ? 'selected' : ''}>${esc(m)}</option>`).join('');
+    };
+    const cfg = await api('/api/admin/config').catch(() => ({}));
+    fill('adm-chat', cfg.chat_model || '');
+    fill('adm-backend', cfg.backend_model || '');
+    fill('adm-vision', cfg.vision_model || '');
+  } catch (e) {
+    if (msg) msg.textContent = '拉取失败：' + e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 function adminTagsHTML() {
   return `<div id="admin-tags">
@@ -1067,11 +1100,32 @@ async function bindAdmin() {
     const c = await api('/api/admin/config');
     const g = (id) => document.getElementById(id);
     if (g('adm-base')) g('adm-base').value = c.base_url || '';
-    if (g('adm-chat')) g('adm-chat').value = c.chat_model || '';
     if (g('adm-emb')) g('adm-emb').value = c.embedding_model || '';
-    if (g('adm-vision')) g('adm-vision').value = c.vision_model || '';
     if (g('adm-key')) g('adm-key').placeholder = c.has_key ? '已设置（留空不修改）' : '未设置，请输入';
+    // 下拉框：先填入当前值占位，点"刷新模型列表"后载入完整列表
+    for (const [id, key] of [['adm-chat', 'chat_model'], ['adm-backend', 'backend_model'], ['adm-vision', 'vision_model']]) {
+      const sel = g(id);
+      if (sel && c[key]) sel.innerHTML = `<option value="${esc(c[key])}" selected>${esc(c[key])}（当前）</option>`;
+    }
   } catch (e) { /* 提交时再报错 */ }
+  const modelsBtn = document.getElementById('adm-models');
+  if (modelsBtn) modelsBtn.onclick = () => adminLoadModels();
+  const testBtn = document.getElementById('adm-test');
+  if (testBtn) testBtn.onclick = async () => {
+    const msg = document.getElementById('adm-models-msg');
+    const model = document.getElementById('adm-chat').value;
+    if (msg) msg.textContent = '测试中…';
+    testBtn.disabled = true;
+    try {
+      const r = await api('/api/admin/test', { method: 'POST', body: JSON.stringify({ model }) });
+      if (msg) { msg.style.color = '#16a34a'; msg.textContent = `连通正常（${r.model}）：${r.reply || '无返回'}`; }
+    } catch (e) {
+      if (msg) { msg.style.color = ''; msg.textContent = '测试失败：' + e.message; }
+    } finally {
+      testBtn.disabled = false;
+      setTimeout(() => { if (msg) msg.style.color = ''; }, 5000);
+    }
+  };
   const save = document.getElementById('adm-save');
   if (save) save.onclick = async () => {
     const g = (id) => document.getElementById(id).value.trim();
@@ -1080,6 +1134,7 @@ async function bindAdmin() {
     try {
       await api('/api/admin/config', { method: 'PUT', body: JSON.stringify({
         api_key: g('adm-key'), base_url: g('adm-base'), chat_model: g('adm-chat'),
+        backend_model: g('adm-backend'),
         embedding_model: g('adm-emb'), vision_model: g('adm-vision'),
       }) });
       msg.style.color = '#16a34a'; msg.textContent = '已保存';
