@@ -839,15 +839,17 @@ app.post('/api/ai/assist', async (req, res) => {
   if (message.length > 2000) return res.status(400).json({ error: '消息过长（最多 2000 字）' });
 
   // v0.10.2 新管线：LLM 理解（意图/标签/关键词）→ 精准检索；失败时回退旧检索
+  // [临时禁用] 调试 fetch failed 问题
   let candidates;
   let under = null;
-  try {
-    under = await llmUnderstand(message, cfg);
-    candidates = smartRetrieve(under, message);
-  } catch (e) {
-    candidates = [];
-  }
-  if (!candidates.length) candidates = aiRetrieve(message);
+  // try {
+  //   under = await llmUnderstand(message, cfg);
+  //   candidates = smartRetrieve(under, message);
+  // } catch (e) {
+  //   candidates = [];
+  // }
+  // if (!candidates.length) candidates = aiRetrieve(message);
+  candidates = aiRetrieve(message);
   if (!candidates.length) return res.status(404).json({ error: '话术库中没有匹配的模板' });
 
   const sys = '你是话术库助手。从候选模板中选最匹配的一条，输出 JSON {template_id, slots:{name:value}}。' +
