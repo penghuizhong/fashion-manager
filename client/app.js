@@ -593,11 +593,11 @@ if (openId) openTplModal(openId);
 
 /* ---------- 模板弹窗：同步渲染（数据已在列表里，零等待） ---------- */
 /* ---------- 话术卡弹窗：使用 / 编辑双模式（同壳复用，编辑不再是新弹窗 UI） ---------- */
-async function openTplModal(id, mode = 'view') {
+async function openTplModal(id, mode = 'view', opts = {}) {
 const isNew = id === null || id === undefined;
 const isEdit = mode === 'edit';
-// 保证列表页在弹窗底下（直链进入时）
-if (!document.getElementById('t-list')) await viewTplList();
+// 保证列表页在弹窗底下（直链进入时）；opts.skipList 时不强制渲染（如从 AI 助手直接弹窗）
+if (!opts.skipList && !document.getElementById('t-list')) await viewTplList();
 let t = null;
 if (!isNew) {
 t = (tplLastList || []).find((x) => x.id === Number(id));
@@ -934,10 +934,36 @@ async function viewAi() {
     go.disabled = true; res.innerHTML = '<div class="muted">AI 生成中…</div>';
     try {
       const d = await api('/api/ai/assist', { method: 'POST', body: JSON.stringify({ message }) });
-      aiRenderResult(d);
+      aiRenderOptions(d, message);
     } catch (e) { res.innerHTML = `<div class="miss">${esc(e.message)}</div>`; }
     finally { go.disabled = false; }
   };
+}
+/* Top-3 选项卡 */
+function aiRenderOptions(d, message) {
+  const res = $('#ai-result');
+  const opts = d.options || [];
+  if (!opts.length) { res.innerHTML = '<div class="miss">没有匹配的话术</div>'; return; }
+  res.innerHTML = `<div class="muted" style="margin-bottom:8px">AI 推荐 ${opts.length} 条，点击选用：</div>` +
+    opts.map((o, i) => `
+    <div class="card tappable" data-tid="${o.template_id}" style="margin-bottom:8px">
+      <div class="rowline" style="gap:6px;margin-bottom:4px">
+        <span class="tchip">${esc(o.template_key)}</span>
+        ${o.recommended ? '<span class="tchip" style="background:var(--accent);color:var(--on-accent)">推荐</span>' : ''}
+        <span class="muted" style="font-size:12px">${esc(o.note_zh || '')}</span>
+      </div>
+      <div style="font-size:13px;color:var(--muted)">${esc(o.preview)}</div>
+    </div>`).join('');
+  res.querySelectorAll('.card').forEach((c) => {
+    c.onclick = async () => {
+      const tid = Number(c.dataset.tid);
+      res.innerHTML = '<div class="muted">加载话术…</div>';
+      try {
+        const r = await api('/api/ai/assist/select', { method: 'POST', body: JSON.stringify({ template_id: tid, message }) });
+        aiRenderResult(r);
+      } catch (e) { res.innerHTML = `<div class="miss">${esc(e.message)}</div>`; }
+    };
+  });
 }
 function aiRenderResult(d) {
   const res = $('#ai-result');
@@ -961,7 +987,7 @@ function aiRenderResult(d) {
     } catch (e) { toast('复制失败：' + e.message); }
   };
   const et = $('#ai-edit-tpl');
-  if (et) et.onclick = () => { location.hash = `#/tpl/${d.template_id}/edit`; };
+  if (et) et.onclick = () => openTplModal(d.template_id, 'edit', { skipList: true });
 }
 
 /* ---------------- 管理设置弹窗（全局 Modal + 横向滑动二级导航） ---------------- */
@@ -975,7 +1001,8 @@ function adminBodyHTML() {
   return `<div class="admin-tabs">
     <button class="atab ${adminTab === 'model' ? 'on' : ''}" data-atab="model">模型服务</button>
     <button class="atab ${adminTab === 'tags' ? 'on' : ''}" data-atab="tags">标签词表</button>
-  </div><div id="admin-pane">${adminTab === 'model' ? adminModelHTML() : adminTagsHTML()}</div>`;
+    <button class="atab ${adminTab === 'tpl' ? 'on' : ''}" data-atab="tpl">模板台</button>
+  </div><div id="admin-pane">${adminTab === 'model' ? adminModelHTML() : adminTab === 'tags' ? adminTagsHTML() : '<div id="admin-tpl"><div class="empty">加载中…</div></div>'}</div>`;
 }
 function adminModelHTML() {
   return `<div id="admin-model-form">
@@ -983,11 +1010,11 @@ function adminModelHTML() {
     <input type="password" id="adm-key" placeholder="未设置，请输入" autocomplete="off">
     <label class="fl">Base URL</label>
     <input id="adm-base" autocomplete="off">
-    <div class="btnrow" style="margin:8px 0">
-      <button class="btn ghost" id="adm-models" style="flex:1">刷新模型列表</button>
-      <button class="btn ghost" id="adm-test" style="flex:1">测试连通性</button>
+    <div class="btnrow frm-row">
+      <button class="btn ghost" id="adm-models">刷新模型列表</button>
+      <button class="btn ghost" id="adm-test">测试连通性</button>
     </div>
-    <div class="muted" id="adm-models-msg" style="font-size:12px;margin-bottom:8px"></div>
+    <div class="frm-hint" id="adm-models-msg"></div>
     <label class="fl">对话模型 <span class="muted">（话术选择用）</span></label>
     <select id="adm-chat"><option value="">请先刷新模型列表</option></select>
     <label class="fl">后台模型 <span class="muted">（关键词理解用，可选便宜快的）</span></label>
@@ -996,7 +1023,7 @@ function adminModelHTML() {
     <select id="adm-vision"><option value="">请先刷新模型列表</option></select>
     <label class="fl">向量模型 <span class="muted">（暂未用，预留）</span></label>
     <input id="adm-emb" autocomplete="off" placeholder="如 text-embedding-v4">
-    <button class="btn" id="adm-save" style="width:100%;margin-top:12px">保存</button>
+    <button class="btn frm-sec" id="adm-save">保存</button>
     <div class="miss" id="adm-msg"></div>
   </div>`;
 }
@@ -1028,12 +1055,12 @@ async function adminLoadModels() {
 }
 function adminTagsHTML() {
   return `<div id="admin-tags">
-    <div class="rowline" style="gap:8px;margin-bottom:8px">
-      <input id="tag-new-name" placeholder="新标签名" style="flex:2">
-      <select id="tag-new-grp" style="flex:1">${TAG_GROUPS.map((g) => `<option>${g}</option>`).join('')}</select>
-      <button class="btn" id="tag-add" style="flex:0 0 auto">新增</button>
+    <div class="frm-row">
+      <input id="tag-new-name" placeholder="新标签名" class="grow2">
+      <select id="tag-new-grp" class="grow1">${TAG_GROUPS.map((g) => `<option>${g}</option>`).join('')}</select>
+      <button class="btn sm" id="tag-add">新增</button>
     </div>
-    <div class="muted" style="font-size:12px;margin-bottom:8px">改名/删除/合并即时生效；删除标签会清除它的全部打标关联。</div>
+    <div class="frm-hint">改名/删除/合并即时生效；删除标签会清除它的全部打标关联。</div>
     <div id="tag-list"><div class="empty">加载中…</div></div>
   </div>`;
 }
@@ -1094,11 +1121,53 @@ async function adminTagsBind() {
   };
   await draw();
 }
+/* 管理弹窗内的模板台 tab：精简列表，点击卡片直接编辑 */
+async function adminTplBind() {
+  const pane = document.getElementById('admin-tpl');
+  if (!pane) return;
+  pane.innerHTML = `
+    <div class="frm-row">
+      <input id="atpl-q" class="searchbar" placeholder="搜索：编号 / 标题 / 正文" autocomplete="off">
+      <button class="btn sm" id="atpl-new">新增</button>
+    </div>
+    <div id="atpl-list"><div class="empty">加载中…</div></div>`;
+  const listEl = document.getElementById('atpl-list');
+  const qEl = document.getElementById('atpl-q');
+  let timer = null;
+  const load = async () => {
+    const q = qEl.value.trim();
+    try {
+      const d = await api('/api/reply-templates' + (q ? '?q=' + encodeURIComponent(q) : ''));
+      const list = d.templates || [];
+      if (!list.length) { listEl.innerHTML = '<div class="empty">没有符合的模板</div>'; return; }
+      listEl.innerHTML = list.map((t) => `
+        <div class="card tappable" data-id="${t.id}" style="margin-bottom:8px">
+          <div class="rowline" style="gap:6px;margin-bottom:4px">
+            <span class="tchip">${esc(t.key)}</span>
+            <span class="muted" style="font-size:12px">${esc(t.note_zh || t.title || '')}</span>
+          </div>
+          <div style="font-size:13px;color:var(--muted)">${esc((t.gloss_zh || '').slice(0, 60))}${(t.gloss_zh || '').length > 60 ? '…' : ''}</div>
+        </div>`).join('');
+      listEl.querySelectorAll('.card').forEach((c) => {
+        c.onclick = () => openTplModal(Number(c.dataset.id), 'edit', { skipList: true });
+      });
+    } catch (e) {
+      listEl.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;
+    }
+  };
+  qEl.oninput = () => { clearTimeout(timer); timer = setTimeout(load, 350); };
+  document.getElementById('atpl-new').onclick = () => openTplModal(null, 'edit', { skipList: true });
+  await load();
+}
 async function bindAdmin() {
   document.querySelectorAll('#m-body [data-atab]').forEach((b) => {
     b.onclick = () => { adminTab = b.dataset.atab; Modal.setBody(adminBodyHTML()); bindAdmin(); };
   });
-  if (adminTab !== 'model') { if (adminTab === 'tags') adminTagsBind(); return; }
+  if (adminTab !== 'model') {
+    if (adminTab === 'tags') { adminTagsBind(); return; }
+    if (adminTab === 'tpl') { adminTplBind(); return; }
+    return;
+  }
   try {
     const c = await api('/api/admin/config');
     const g = (id) => document.getElementById(id);
