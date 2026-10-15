@@ -29,7 +29,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.11',
+  version: '0.10.12',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -242,6 +242,22 @@ ${items || '· （无）'}
 
 function seedV4() {
   const row = db.prepare(`SELECT value FROM app_config WHERE key='seed_version'`).get();
+  // v6 迁移：清理 note_zh 旧编号（v5 已做 key 重命名，此步可独立跑）
+  if (row && (row.value === 'v5' || row.value === 'v4')) {
+    const t6 = now();
+    const nrows = db.prepare(`SELECT id, note_zh FROM templates WHERE origin='seed' AND note_zh LIKE 'v2.1 #%'`).all();
+    const nupd = db.prepare(`UPDATE templates SET note_zh=?, updated_at=? WHERE id=?`);
+    let nc = 0;
+    db.transaction(() => {
+      for (const r of nrows) {
+        const clean = r.note_zh.replace(/^v2\.1 #\d+(=\d+)?\s*[｜|]\s*/, '');
+        if (clean !== r.note_zh) { nupd.run(clean, t6, r.id); nc++; }
+      }
+      db.prepare(`UPDATE app_config SET value='v6' WHERE key='seed_version'`).run();
+    })();
+    console.log(`[seed] v5→v6 note_zh清理：${nc} 条`);
+    if (row.value === 'v5') return;
+  }
   // v5 迁移：模板 key 重命名（v21-xxx → SCENE-xxx），UPDATE 保 ID，标签关联不受影响
   if (row && row.value === 'v4') {
     const KEYMAP = {
@@ -346,20 +362,12 @@ function seedV4() {
         const r = upd.run(newK, t, oldK);
         if (r.changes) c++;
       }
-      // 清理 note_zh 开头的旧编号 "v2.1 #xx｜"
-      const nrows = db.prepare(`SELECT id, note_zh FROM templates WHERE origin='seed' AND note_zh LIKE 'v2.1 #%'`).all();
-      const nupd = db.prepare(`UPDATE templates SET note_zh=?, updated_at=? WHERE id=?`);
-      let nc = 0;
-      for (const r of nrows) {
-        const clean = r.note_zh.replace(/^v2\.1 #\d+(=\d+)?｜/, '');
-        if (clean !== r.note_zh) { nupd.run(clean, t, r.id); nc++; }
-      }
       db.prepare(`UPDATE app_config SET value='v5' WHERE key='seed_version'`).run();
     })();
-    console.log(`[seed] v4→v5 key重命名：${c} 个模板，note_zh清理：${nc} 条`);
+    console.log(`[seed] v4→v5 key重命名：${c} 个模板`);
     return;
   }
-  if (row && row.value === 'v5') return;
+  if (row && row.value === 'v6') return;
   // v0.9.0：话术库 v2.1 全量替换 —— 只动 origin='seed' 的模板与 snippets，
   // 自定义（custom）/legacy 模板、款档案/样衣/报价等业务表不受影响
   const t = now();
@@ -387,7 +395,7 @@ function seedV4() {
       (tpl.vars || []).forEach((v, i) =>
         insV.run(id, v.name, v.type || 'text', v.required ? 1 : 0, v.label_zh || v.name, v.sample || '', i));
     }
-    db.prepare(`INSERT OR REPLACE INTO app_config (key,value,updated_at) VALUES ('seed_version','v5',?)`).run(t);
+    db.prepare(`INSERT OR REPLACE INTO app_config (key,value,updated_at) VALUES ('seed_version','v6',?)`).run(t);
   })();
   console.log(`[seed] v4 话术库 v2.1 全量重灌：${TEMPLATES.length} 个模板 / ${SNIPPETS.length} 个共享片段`);
 }
