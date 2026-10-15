@@ -21,7 +21,7 @@ export const TEMPLATES = [
     key: "ASK-001",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #1｜颜色 / 面料类｜Which colors are available? And what is the fabric material?",
+    note_zh: "颜色 / 面料类｜Which colors are available? And what is the fabric material?",
     gloss_zh: "您好！感谢咨询。我们可以做很多颜色——可以给您发色卡照片。面料方面，我们可以采购缎面、蕾丝、网纱、雪纺、丝绒、绉布和西装毛料。您喜欢哪种颜色和面料呢？",
     source_buyer: "v2.1-#1",
     vars: [
@@ -34,7 +34,7 @@ export const TEMPLATES = [
     key: "ASK-002",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #2｜颜色 / 面料类｜What are the colors?",
+    note_zh: "颜色 / 面料类｜What are the colors?",
     gloss_zh: "您好！我们有色卡册，您可以从色卡里选色，也可以直接发我色号。要我给您发色卡照片吗？",
     source_buyer: "v2.1-#2",
     vars: [
@@ -47,7 +47,7 @@ export const TEMPLATES = [
     key: "ASK-003",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #3｜颜色 / 面料类｜The one in the ad is Navy Blue Plaid; what are the other col",
+    note_zh: "颜色 / 面料类｜The one in the ad is Navy Blue Plaid; what are the other col",
     gloss_zh: "您好！可以的，除了藏青格纹，我们还可以做其他颜色——藏青纯色、黑色、灰色等。我可以给您发色卡照片。您喜欢哪种颜色？",
     source_buyer: "v2.1-#3",
     vars: [
@@ -60,7 +60,7 @@ export const TEMPLATES = [
     key: "ASK-004",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #4｜颜色 / 面料类｜Do you have any photos of the dark gray?",
+    note_zh: "颜色 / 面料类｜Do you have any photos of the dark gray?",
     gloss_zh: "您好！有的——我马上在消息中心给您发深灰色的照片。",
     source_buyer: "v2.1-#4",
     vars: [
@@ -73,7 +73,7 @@ export const TEMPLATES = [
     key: "ASK-005",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #8｜颜色 / 面料类｜Can i customize the color for sage green?",
+    note_zh: "颜色 / 面料类｜Can i customize the color for sage green?",
     gloss_zh: "您好！鼠尾草绿没问题——我们支持定制颜色。您想要几件？",
     source_buyer: "v2.1-#8",
     vars: [
@@ -86,7 +86,7 @@ export const TEMPLATES = [
     key: "ASK-006",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #17｜颜色 / 面料类｜из какой ткани",
+    note_zh: "颜色 / 面料类｜из какой ткани",
     gloss_zh: "您好！我们可以配缎面、蕾丝、网纱、雪纺、丝绒、绉布和羊毛西装面料。您喜欢哪种颜色和面料？",
     source_buyer: "v2.1-#17",
     vars: [
@@ -99,7 +99,7 @@ export const TEMPLATES = [
     key: "ASK-007",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #28｜颜色 / 面料类｜can i have this one in a red wine color?",
+    note_zh: "颜色 / 面料类｜can i have this one in a red wine color?",
     gloss_zh: "您好！酒红色可以做。您想要几件？",
     source_buyer: "v2.1-#28",
     vars: [
@@ -112,7 +112,7 @@ export const TEMPLATES = [
     key: "ASK-008",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #32｜颜色 / 面料类｜Hello. What materials do you have?",
+    note_zh: "颜色 / 面料类｜Hello. What materials do you have?",
     gloss_zh: "您好！我们可以采购缎面、蕾丝、网纱、雪纺、丝绒、绉布、羊毛混纺西装面料等。您喜欢哪种面料？",
     source_buyer: "v2.1-#32",
     vars: [
@@ -125,7 +125,7 @@ export const TEMPLATES = [
     key: "ASK-009",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #39｜颜色 / 面料类｜disponible. la matiere",
+    note_zh: "颜色 / 面料类｜disponible. la matiere",
     gloss_zh: "您好！我们可以采购缎面、蕾丝、薄纱、雪纺、丝绒、绉布和羊毛西装面料。您喜欢哪种颜色和面料？",
     source_buyer: "v2.1-#39",
     vars: [
@@ -138,7 +138,7 @@ export const TEMPLATES = [
     key: "ASK-010",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #53｜颜色 / 面料类｜Combien de pour cent la laine?",
+    note_zh: "颜色 / 面料类｜Combien de pour cent la laine?",
     gloss_zh: "您好！羊毛含量取决于所选面料——我们可以采购不同羊毛含量的面料。您想要多少含量的？",
     source_buyer: "v2.1-#53",
     vars: [
@@ -151,7 +151,7 @@ export const TEMPLATES = [
     key: "ASK-011",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #54｜颜色 / 面料类｜Ya pas de vrai laine?",
+    note_zh: "颜色 / 面料类｜Ya pas de vrai laine?",
     gloss_zh: "您好！有的，我们可以采购真正的羊毛面料（比如 Super 120s–150s）。请告诉我您想要的数量。",
     source_buyer: "v2.1-#54",
     vars: [
@@ -164,7 +164,7 @@ export const TEMPLATES = [
     key: "QUOTE-001",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #7｜问价类｜what is the discount ?",
+    note_zh: "问价类｜what is the discount ?",
     gloss_zh: "您好！我们的价格看数量——量大单价更优惠。您大概要几件？我帮您核算最优惠的价格。",
     source_buyer: "v2.1-#7",
     vars: [
@@ -177,7 +177,7 @@ export const TEMPLATES = [
     key: "QUOTE-002",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #13｜问价类｜How much will it cost if i buy a sample?",
+    note_zh: "问价类｜How much will it cost if i buy a sample?",
     gloss_zh: "您好！样品价格看款式复杂程度——我给您报这款的准确价格。下大货时样品费全额抵扣货款。",
     source_buyer: "v2.1-#13",
     vars: [
@@ -190,7 +190,7 @@ export const TEMPLATES = [
     key: "QUOTE-003",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #14｜问价类｜السعر شكد",
+    note_zh: "问价类｜السعر شكد",
     gloss_zh: "您好！价格看产品、数量和面料——请告诉我您要几件，我给您报准确价格。",
     source_buyer: "v2.1-#14",
     vars: [
@@ -203,7 +203,7 @@ export const TEMPLATES = [
     key: "QUOTE-004",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #33｜问价类｜How much would a wool/silk tuxedo cost? Super 150?",
+    note_zh: "问价类｜How much would a wool/silk tuxedo cost? Super 150?",
     gloss_zh: "您好！可以的，我们能用 Super 150 面料做羊毛/真丝燕尾服。价格看您的数量、尺码和细节——能发我这些信息吗？我给您报准确价格。",
     source_buyer: "v2.1-#33",
     vars: [
@@ -216,7 +216,7 @@ export const TEMPLATES = [
     key: "QUOTE-005",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #34｜问价类｜1 set How much",
+    note_zh: "问价类｜1 set How much",
     gloss_zh: "您好！我马上给您报 1 套的价格——请发我您的尺码和国家/邮编，我把运费一起核算进去。",
     source_buyer: "v2.1-#34",
     vars: [
@@ -229,7 +229,7 @@ export const TEMPLATES = [
     key: "QUOTE-006",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #37｜问价类｜I want to buy one suit. Please tell me the price, and if it ",
+    note_zh: "问价类｜I want to buy one suit. Please tell me the price, and if it ",
     gloss_zh: "您好！1 套西装可以按定制样单做。价格看面料、您的尺码和定制要求——能发我您的量体数据吗？我报准确价格，您再决定。",
     source_buyer: "v2.1-#37",
     vars: [
@@ -242,7 +242,7 @@ export const TEMPLATES = [
     key: "QUOTE-007",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #38｜问价类｜The price of the suit I want to buy is listed as $63.31 each",
+    note_zh: "问价类｜The price of the suit I want to buy is listed as $63.31 each",
     gloss_zh: "您好！理解您觉得价格偏高。我们的西装是按您量体定制的——价格包含单独制版、优质面料和手工制作，不是大货流水线。数量多单价确实能下来。我可以按您的数量再核一个最优惠的价格。",
     source_buyer: "v2.1-#38",
     vars: [
@@ -255,7 +255,7 @@ export const TEMPLATES = [
     key: "QUOTE-008",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #44｜问价类｜Ce costume coûte combien? une pièce",
+    note_zh: "问价类｜Ce costume coûte combien? une pièce",
     gloss_zh: "您好！一件可以，按定制样单做。价格看面料、您的尺码和工艺细节：能发我您的量体数据吗？我给您做准确报价。",
     source_buyer: "v2.1-#44",
     vars: [
@@ -268,7 +268,7 @@ export const TEMPLATES = [
     key: "QUOTE-009",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #46｜问价类｜how much 1 pc only need for gala night, can you send mo pict",
+    note_zh: "问价类｜how much 1 pc only need for gala night, can you send mo pict",
     gloss_zh: "您好！gala 晚会要 1 件没问题。我们是定制工作室，每件按订单制作——我可以先发您类似成品的实拍图，发货前也会拍照给您验货。请发我您的尺码和国家/邮编，我报价格和运费。",
     source_buyer: "v2.1-#46",
     vars: [
@@ -281,7 +281,7 @@ export const TEMPLATES = [
     key: "QUOTE-010",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #50｜问价类｜شلون سعره",
+    note_zh: "问价类｜شلون سعره",
     gloss_zh: "您好！请告诉我您要的数量，我给您报准确价格。",
     source_buyer: "v2.1-#50",
     vars: [
@@ -294,7 +294,7 @@ export const TEMPLATES = [
     key: "QUOTE-011",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #55｜问价类｜Oui ça me reviendrait à combien du 100 pour 100",
+    note_zh: "问价类｜Oui ça me reviendrait à combien du 100 pour 100",
     gloss_zh: "您好！100% 羊毛可以做——这是高档面料。请告诉我数量、面料细节和制作要求，我给您做准确报价。",
     source_buyer: "v2.1-#55",
     vars: [
@@ -307,7 +307,7 @@ export const TEMPLATES = [
     key: "QUOTE-012",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #57｜问价类｜And can you do 1piece to buy first and check? If yes, how mu",
+    note_zh: "问价类｜And can you do 1piece to buy first and check? If yes, how mu",
     gloss_zh: "您好！可以先订 1 件验看质量。请确认您在澳大利亚的邮编，我报单件+运费的价格。",
     source_buyer: "v2.1-#57",
     vars: [
@@ -320,7 +320,7 @@ export const TEMPLATES = [
     key: "QUOTE-013",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #63｜问价类｜si je veux deux pièces de chacune tout ferais combien ?",
+    note_zh: "问价类｜si je veux deux pièces de chacune tout ferais combien ?",
     gloss_zh: "您好！没问题——请把相关的款式发我（照片或截图），我给您算总价。",
     source_buyer: "v2.1-#63",
     vars: [
@@ -333,7 +333,7 @@ export const TEMPLATES = [
     key: "QUOTE-014",
     scene: "quote",
     category: "通用",
-    note_zh: "v2.1 #70｜问价类｜how much is this in Kenyan shillings and are you able to del",
+    note_zh: "问价类｜how much is this in Kenyan shillings and are you able to del",
     gloss_zh: "您好！我们按美元报价，您可以按实时汇率换算成肯尼亚先令。可以的，我们能发肯尼亚，走 DHL/FedEx。请确认数量和您在内罗毕的邮编，我报产品+运费的价格。",
     source_buyer: "v2.1-#70",
     vars: [
@@ -346,7 +346,7 @@ export const TEMPLATES = [
     key: "ASK-012",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #9｜MOQ / 1件类｜what is the minimum quantity for mass purchase ?",
+    note_zh: "MOQ / 1件类｜what is the minimum quantity for mass purchase ?",
     gloss_zh: "您好！起订量看款式：现有款 1 件起；按您的设计做——先做样品，大货单款 10 件起；婚礼/团单 5 件起。",
     source_buyer: "v2.1-#9",
     vars: [
@@ -359,7 +359,7 @@ export const TEMPLATES = [
     key: "ASK-013",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #10｜MOQ / 1件类｜Can i order 1 pc only?",
+    note_zh: "MOQ / 1件类｜Can i order 1 pc only?",
     gloss_zh: "您好！可以只订 1 件——我们按定制样单给您做。",
     source_buyer: "v2.1-#10",
     vars: [
@@ -372,7 +372,7 @@ export const TEMPLATES = [
     key: "ASK-014",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #11｜MOQ / 1件类｜What do you mean by one sample?",
+    note_zh: "MOQ / 1件类｜What do you mean by one sample?",
     gloss_zh: "您好！样品就是先做 1 件，让您在大货前确认版型、面料和质量。下大货时样品费全额抵扣。我们先从 1 件样品开始？",
     source_buyer: "v2.1-#11",
     vars: [
@@ -385,7 +385,7 @@ export const TEMPLATES = [
     key: "ASK-015",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #12｜MOQ / 1件类｜I can purchase sample item so i can buy 1 pc only?",
+    note_zh: "MOQ / 1件类｜I can purchase sample item so i can buy 1 pc only?",
     gloss_zh: "您好！没错——您可以买 1 件按样单下单。",
     source_buyer: "v2.1-#12",
     vars: [
@@ -398,7 +398,7 @@ export const TEMPLATES = [
     key: "ASK-016",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #19｜MOQ / 1件类｜Can i order for 1pcs?",
+    note_zh: "MOQ / 1件类｜Can i order for 1pcs?",
     gloss_zh: "您好！1 件可以，按定制样单做。",
     source_buyer: "v2.1-#19",
     vars: [
@@ -411,7 +411,7 @@ export const TEMPLATES = [
     key: "ASK-017",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #21=47｜MOQ / 1件类｜Color: Black; Size: Xs; Quantity: 1.0;",
+    note_zh: "MOQ / 1件类｜Color: Black; Size: Xs; Quantity: 1.0;",
     gloss_zh: "您好！谢谢——黑色、XS、1 件没问题。因为是单件定制，能再发我您的量体数据吗（或确认 XS 合身），还有您的国家和邮编，我核算运费。我给您准备准确报价。",
     source_buyer: "v2.1-#21=47",
     vars: [
@@ -424,7 +424,7 @@ export const TEMPLATES = [
     key: "ASK-018",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #30｜MOQ / 1件类｜Free Samples??",
+    note_zh: "MOQ / 1件类｜Free Samples??",
     gloss_zh: "您好！我们没有免费样品——样品费和运费由买家承担。好消息是：下大货时样品费全额抵扣货款。",
     source_buyer: "v2.1-#30",
     vars: [
@@ -437,7 +437,7 @@ export const TEMPLATES = [
     key: "ASK-019",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #45｜MOQ / 1件类｜On peut avoir une pièce",
+    note_zh: "MOQ / 1件类｜On peut avoir une pièce",
     gloss_zh: "您好！可以订一件，按定制样单做。",
     source_buyer: "v2.1-#45",
     vars: [
@@ -450,7 +450,7 @@ export const TEMPLATES = [
     key: "ASK-020",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #62｜MOQ / 1件类｜Peut-on envoyer des échantillons en port dû ?",
+    note_zh: "MOQ / 1件类｜Peut-on envoyer des échantillons en port dû ?",
     gloss_zh: "您好！样品运费由买家预付——样品不接受到付。",
     source_buyer: "v2.1-#62",
     vars: [
@@ -463,7 +463,7 @@ export const TEMPLATES = [
     key: "ASK-021",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #66｜MOQ / 1件类｜i want this. from Bangladesh, 1 pcs",
+    note_zh: "MOQ / 1件类｜i want this. from Bangladesh, 1 pcs",
     gloss_zh: "您好！谢谢——发孟加拉 1 件没问题。请确认您的邮编，我报单件+到孟加拉运费的价格。",
     source_buyer: "v2.1-#66",
     vars: [
@@ -476,7 +476,7 @@ export const TEMPLATES = [
     key: "ASK-022",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #69｜MOQ / 1件类｜no vende solo una pieza?",
+    note_zh: "MOQ / 1件类｜no vende solo una pieza?",
     gloss_zh: "您好！是的，我们 1 件起卖。您需要几件？",
     source_buyer: "v2.1-#69",
     vars: [
@@ -489,7 +489,7 @@ export const TEMPLATES = [
     key: "ASK-023",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #71｜MOQ / 1件类｜okay. how about 2 pieces? my address is Nairobi CBD",
+    note_zh: "MOQ / 1件类｜okay. how about 2 pieces? my address is Nairobi CBD",
     gloss_zh: "您好！2 件没问题。请确认您在内罗毕的邮编，我核算含运费的总价。",
     source_buyer: "v2.1-#71",
     vars: [
@@ -502,7 +502,7 @@ export const TEMPLATES = [
     key: "ASK-024",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #24｜定制类｜hello, do u a cept customizable",
+    note_zh: "定制类｜hello, do u a cept customizable",
     gloss_zh: "您好！是的，我们支持定制。您想定制哪方面——颜色、尺码、面料，还是 logo/唛头？",
     source_buyer: "v2.1-#24",
     vars: [
@@ -515,7 +515,7 @@ export const TEMPLATES = [
     key: "ASK-025",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #25｜定制类｜my own styles, can u customizable?",
+    note_zh: "定制类｜my own styles, can u customizable?",
     gloss_zh: "您好！可以——请发我您的款式图或工艺单，我们评估后给您报价。是哪类款式呢？",
     source_buyer: "v2.1-#25",
     vars: [
@@ -528,7 +528,7 @@ export const TEMPLATES = [
     key: "ASK-026",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #41｜定制类｜Custom black tuxedo with white lace appliqué for prom",
+    note_zh: "定制类｜Custom black tuxedo with white lace appliqué for prom",
     gloss_zh: "您好！感谢详细的需求和参考图——是的，我们可以做这款定制黑色燕尾服，白色蕾丝/花卉刺绣贴花从裤侧一直延伸到上衣。为了给您准备报价，能否发我：1）您的量体数据（或常穿的西装尺码）；2）翻领偏好——戗驳领还是平驳领；3）数量和交期？我也可以发您类似成品的照片。",
     source_buyer: "v2.1-#41",
     vars: [
@@ -541,7 +541,7 @@ export const TEMPLATES = [
     key: "ASK-027",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #58｜定制类｜Lo quisiera igual pero las tiras en los hombros y color verd",
+    note_zh: "定制类｜Lo quisiera igual pero las tiras en los hombros y color verd",
     gloss_zh: "您好！可以——按肩带款、鼠尾草绿色做。请确认一下数量。",
     source_buyer: "v2.1-#58",
     vars: [
@@ -554,7 +554,7 @@ export const TEMPLATES = [
     key: "ASK-028",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #61｜定制类｜Pouvez-vous imprimer un logo sur du tissu ?",
+    note_zh: "定制类｜Pouvez-vous imprimer un logo sur du tissu ?",
     gloss_zh: "您好！是的，我们可以在面料上印 logo（也可以刺绣）。您想要多少数量？",
     source_buyer: "v2.1-#61",
     vars: [
@@ -567,7 +567,7 @@ export const TEMPLATES = [
     key: "ASK-029",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #67｜定制类｜Launching minimalist brand, NO MOQ 1 piece, ship to agent wa",
+    note_zh: "定制类｜Launching minimalist brand, NO MOQ 1 piece, ship to agent wa",
     gloss_zh: "您好！感谢联系。是的——我们接 1 件的订单，也可以发到您在国内的采购代理仓库。每件按您的要求（面料、款式、数量）单独计价。建议先从样品开始确认质量——能发我您的首批设计稿吗？",
     source_buyer: "v2.1-#67",
     vars: [
@@ -580,7 +580,7 @@ export const TEMPLATES = [
     key: "ASK-030",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #72｜定制类｜Hello, can you customize it here?",
+    note_zh: "定制类｜Hello, can you customize it here?",
     gloss_zh: "您好！是的，我们支持定制。您想定制哪方面——颜色、尺码、面料、logo/唛头？多跟我说说。",
     source_buyer: "v2.1-#72",
     vars: [
@@ -593,7 +593,7 @@ export const TEMPLATES = [
     key: "ASK-031",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #15｜运输 / 交期类｜и сколько стоит доставка в Израиль",
+    note_zh: "运输 / 交期类｜и сколько стоит доставка в Израиль",
     gloss_zh: "您好！到以色列的运费按重量和地址核算。请告诉我您的邮编，我帮您算运费。",
     source_buyer: "v2.1-#15",
     vars: [
@@ -606,7 +606,7 @@ export const TEMPLATES = [
     key: "ASK-032",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #18｜运输 / 交期类｜сколько времени займёт",
+    note_zh: "运输 / 交期类｜сколько времени займёт",
     gloss_zh: "您好！样品：10–20 个工作日（刺绣钉珠款 20–30 天）；大货：样品确认后 15–25 个工作日。",
     source_buyer: "v2.1-#18",
     vars: [
@@ -619,7 +619,7 @@ export const TEMPLATES = [
     key: "ASK-033",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #27｜运输 / 交期类｜Cuánto es el costo de envío a San Pedro Garza García, Nuevo ",
+    note_zh: "运输 / 交期类｜Cuánto es el costo de envío a San Pedro Garza García, Nuevo ",
     gloss_zh: "您好！运费按重量和目的地核算。您要几件？我马上给您报到 San Pedro Garza García 66274 的运费。",
     source_buyer: "v2.1-#27",
     vars: [
@@ -632,7 +632,7 @@ export const TEMPLATES = [
     key: "ASK-034",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #40｜运输 / 交期类｜livre en france. dou vien le produit",
+    note_zh: "运输 / 交期类｜livre en france. dou vien le produit",
     gloss_zh: "您好！是的，我们送法国——走 DHL、FedEx 或 UPS。我们的服装是在中国广州的定制工作室按订单制作的。能告诉我您的邮编吗？我帮您算运费。",
     source_buyer: "v2.1-#40",
     vars: [
@@ -645,7 +645,7 @@ export const TEMPLATES = [
     key: "ASK-035",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #59｜运输 / 交期类｜Como hago para el pago y cuánto demorarian en hecerlo???",
+    note_zh: "运输 / 交期类｜Como hago para el pago y cuánto demorarian en hecerlo???",
     gloss_zh: "您好！我们接受阿里信保、银行转账（T/T）和西联汇款——在阿里上通过信保全额支付。交期：样品 10–20 个工作日（刺绣款 20–30 天），大货 15–25 个工作日。",
     source_buyer: "v2.1-#59",
     vars: [
@@ -658,7 +658,7 @@ export const TEMPLATES = [
     key: "ASK-036",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #60｜运输 / 交期类｜Está bien y en cuánto tiempo pueden tenerlo listo?",
+    note_zh: "运输 / 交期类｜Está bien y en cuánto tiempo pueden tenerlo listo?",
     gloss_zh: "您好！样品 10–20 个工作日（刺绣款 20–30 天）；样品确认后大货 15–25 个工作日。您什么时候要？",
     source_buyer: "v2.1-#60",
     vars: [
@@ -671,7 +671,7 @@ export const TEMPLATES = [
     key: "ASK-037",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #5｜付款类｜How can we finalize the purchase?",
+    note_zh: "付款类｜How can we finalize the purchase?",
     gloss_zh: "您好！很简单：1）和我确认尺码、数量和定制要求；2）我在阿里上建单；3）您通过信保安全付款；4）我们开始生产。",
     source_buyer: "v2.1-#5",
     vars: [
@@ -684,7 +684,7 @@ export const TEMPLATES = [
     key: "ASK-038",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #29｜付款类｜comment je peux payer",
+    note_zh: "付款类｜comment je peux payer",
     gloss_zh: "您好！我们接受阿里信保、银行转账（T/T）和西联汇款。在阿里上订单通过信保全额结算，保障买卖双方。",
     source_buyer: "v2.1-#29",
     vars: [
@@ -697,7 +697,7 @@ export const TEMPLATES = [
     key: "ASK-039",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #6｜信任 / 照片 / 目录类｜Measurement guide photo request",
+    note_zh: "信任 / 照片 / 目录类｜Measurement guide photo request",
     gloss_zh: "您好！问得好——准确的量体很重要。请看下面的量体指南——标明了皮尺具体放哪里：",
     source_buyer: "v2.1-#6",
     vars: [
@@ -710,7 +710,7 @@ export const TEMPLATES = [
     key: "ASK-040",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #16｜信任 / 照片 / 目录类｜можно настоящее фото?",
+    note_zh: "信任 / 照片 / 目录类｜можно настоящее фото?",
     gloss_zh: "您好！我们是定制工作室：每件都按订单制作，不是现货。我发您类似成品的实拍图，发货前也会拍照拍视频给您验货。",
     source_buyer: "v2.1-#16",
     vars: [
@@ -723,7 +723,7 @@ export const TEMPLATES = [
     key: "ASK-041",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #23｜信任 / 照片 / 目录类｜como é as costas desse vestido?",
+    note_zh: "信任 / 照片 / 目录类｜como é as costas desse vestido?",
     gloss_zh: "您好！这条裙子的后背可以定制——可以做露背款（挂脖系带式），也可以做隐形拉链闭合款。您喜欢哪种？",
     source_buyer: "v2.1-#23",
     vars: [
@@ -736,7 +736,7 @@ export const TEMPLATES = [
     key: "ASK-042",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #31｜信任 / 照片 / 目录类｜Damn, what's your instagram account?",
+    note_zh: "信任 / 照片 / 目录类｜Damn, what's your instagram account?",
     gloss_zh: "您好！我们主要在阿里消息中心沟通——产品照片和细节我都可以发您。您想了解这款的哪方面？",
     source_buyer: "v2.1-#31",
     vars: [
@@ -749,7 +749,7 @@ export const TEMPLATES = [
     key: "ASK-043",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #42｜信任 / 照片 / 目录类｜can you send me photos of similar completed suits so I can s",
+    note_zh: "信任 / 照片 / 目录类｜can you send me photos of similar completed suits so I can s",
     gloss_zh: "您好！当然——我发您类似成品西装的照片，您可以看蕾丝工艺的质量。我在消息中心发您。",
     source_buyer: "v2.1-#42",
     vars: [
@@ -762,7 +762,7 @@ export const TEMPLATES = [
     key: "ASK-044",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #43｜信任 / 照片 / 目录类｜how would u describe the quality of the suits",
+    note_zh: "信任 / 照片 / 目录类｜how would u describe the quality of the suits",
     gloss_zh: "您好！问得好。我们的创始人是 15 年经验的制版师，亲自把关每一件的版型和终检。我们按真实量体裁剪，细节手工完成。我也发您成品照片，您自己看。",
     source_buyer: "v2.1-#43",
     vars: [
@@ -775,7 +775,7 @@ export const TEMPLATES = [
     key: "ASK-045",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #49｜信任 / 照片 / 目录类｜Si vous avez un catalogue ca serait top",
+    note_zh: "信任 / 照片 / 目录类｜Si vous avez un catalogue ca serait top",
     gloss_zh: "您好！可以的，我给您发产品目录，含款式、面料和起订量。我就在这里发您。",
     source_buyer: "v2.1-#49",
     vars: [
@@ -788,7 +788,7 @@ export const TEMPLATES = [
     key: "ASK-046",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #52｜信任 / 照片 / 目录类｜share website or WeChat QR code for woman dresses",
+    note_zh: "信任 / 照片 / 目录类｜share website or WeChat QR code for woman dresses",
     gloss_zh: "您好！我们在阿里消息中心沟通——目录和产品照片都可以发您。您在找哪类女装裙子？",
     source_buyer: "v2.1-#52",
     vars: [
@@ -801,7 +801,7 @@ export const TEMPLATES = [
     key: "ASK-047",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #56｜信任 / 照片 / 目录类｜so that's mean you don't have it in stock?",
+    note_zh: "信任 / 照片 / 目录类｜so that's mean you don't have it in stock?",
     gloss_zh: "您好！没错——我们按订单制作，所以这款没有现货。您确认订单后开始生产。好消息是：1 件就可以起做。要我给您准备报价吗？",
     source_buyer: "v2.1-#56",
     vars: [
@@ -814,7 +814,7 @@ export const TEMPLATES = [
     key: "ASK-048",
     scene: "ask",
     category: "通用",
-    note_zh: "v2.1 #68｜信任 / 照片 / 目录类｜Do you have a catalogue / videos / pictures of the real prod",
+    note_zh: "信任 / 照片 / 目录类｜Do you have a catalogue / videos / pictures of the real prod",
     gloss_zh: "您好！可以——我发您产品目录，还有我们定制成品的实拍照片和视频。我们定制工作室的优势就是定制本身：每件按您的量体和要求制作，不是现货。告诉我您看中哪款，我们按您的要求做。我马上发您资料。",
     source_buyer: "v2.1-#68",
     vars: [
@@ -827,7 +827,7 @@ export const TEMPLATES = [
     key: "FIRST-001",
     scene: "first",
     category: "通用",
-    note_zh: "v2.1 #20｜综合 / 首回类｜Hi, I'm interested in your supply for this.",
+    note_zh: "综合 / 首回类｜Hi, I'm interested in your supply for this.",
     gloss_zh: "您好！感谢关注——您需要几件，有定制想法吗？我给您准备明细和报价。",
     source_buyer: "v2.1-#20",
     vars: [
@@ -840,7 +840,7 @@ export const TEMPLATES = [
     key: "FIRST-002",
     scene: "first",
     category: "通用",
-    note_zh: "v2.1 #22｜综合 / 首回类｜Bonjour, je suis intéressé par votre offre pour ce produit.",
+    note_zh: "综合 / 首回类｜Bonjour, je suis intéressé par votre offre pour ce produit.",
     gloss_zh: "您好！感谢关注——您想要多少数量？我给您准备明细和报价。",
     source_buyer: "v2.1-#22",
     vars: [
@@ -853,7 +853,7 @@ export const TEMPLATES = [
     key: "FIRST-003",
     scene: "first",
     category: "通用",
-    note_zh: "v2.1 #26｜综合 / 首回类｜Hola, estoy explorando opciones... Color: Verde esmeralda; T",
+    note_zh: "综合 / 首回类｜Hola, estoy explorando opciones... Color: Verde esmeralda; T",
     gloss_zh: "您好！谢谢——祖母绿、XL、1 件，没问题。因为是单件定制，能确认一下您的量体数据，还有您的国家+邮编吗？这样我给您报含运费的准确价格。",
     source_buyer: "v2.1-#26",
     vars: [
@@ -866,7 +866,7 @@ export const TEMPLATES = [
     key: "FIRST-004",
     scene: "first",
     category: "通用",
-    note_zh: "v2.1 #35=36｜综合 / 首回类｜I want to buy the suit you see in the picture",
+    note_zh: "综合 / 首回类｜I want to buy the suit you see in the picture",
     gloss_zh: "您好！是的，图上的西装我们可以做。为了准确报价，能否告诉我：1）您喜欢的颜色；2）您的尺码或量体数据；3）数量？期待合作！",
     source_buyer: "v2.1-#35=36",
     vars: [
@@ -879,7 +879,7 @@ export const TEMPLATES = [
     key: "FIRST-005",
     scene: "first",
     category: "通用",
-    note_zh: "v2.1 #48｜综合 / 首回类｜Je peux juste commander une seule? C'est pour un mariage. Si",
+    note_zh: "综合 / 首回类｜Je peux juste commander une seule? C'est pour un mariage. Si",
     gloss_zh: "您好！一件可以订——顺便祝新婚快乐！是的，我们也做男士西装。伴郎团一共几位？我可以给您报团单价。",
     source_buyer: "v2.1-#48",
     vars: [
@@ -892,7 +892,7 @@ export const TEMPLATES = [
     key: "FIRST-006",
     scene: "first",
     category: "通用",
-    note_zh: "v2.1 #51｜综合 / 首回类｜Bonjour, je recherche un nouveau fournisseur.",
+    note_zh: "综合 / 首回类｜Bonjour, je recherche un nouveau fournisseur.",
     gloss_zh: "您好，欢迎！您在找哪类产品、要多少数量？我们 1 件起做全定制。",
     source_buyer: "v2.1-#51",
     vars: [
@@ -905,7 +905,7 @@ export const TEMPLATES = [
     key: "FIRST-007",
     scene: "first",
     category: "通用",
-    note_zh: "v2.1 #64｜综合 / 首回类｜Hi are the mens suit and women dresses available as pre-made",
+    note_zh: "综合 / 首回类｜Hi are the mens suit and women dresses available as pre-made",
     gloss_zh: "您好！我们的西装和裙子都是按订单定制的——按您量体裁剪，不是现货。1 件就可以起做。",
     source_buyer: "v2.1-#64",
     vars: [
@@ -918,7 +918,7 @@ export const TEMPLATES = [
     key: "FIRST-008",
     scene: "first",
     category: "通用",
-    note_zh: "v2.1 #65｜综合 / 首回类｜How to order custom suit for men and women dress?",
+    note_zh: "综合 / 首回类｜How to order custom suit for men and women dress?",
     gloss_zh: "您好！下单很简单：1）发我您的尺码、数量和定制要求；2）我报准确价格；3）我们做样品并发照片给您确认；4）确认后大货生产，发货前拍照拍视频。我们开始吗？",
     source_buyer: "v2.1-#65",
     vars: [
