@@ -18,7 +18,7 @@ export const SNIPPETS = [
 
 export const TEMPLATES = [
   {
-    key: "v21-001",
+    key: "ASK-001",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #1｜颜色 / 面料类｜Which colors are available? And what is the fabric material?",
@@ -31,7 +31,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-002",
+    key: "ASK-002",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #2｜颜色 / 面料类｜What are the colors?",
@@ -44,7 +44,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-003",
+    key: "ASK-003",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #3｜颜色 / 面料类｜The one in the ad is Navy Blue Plaid; what are the other col",
@@ -57,7 +57,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-004",
+    key: "ASK-004",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #4｜颜色 / 面料类｜Do you have any photos of the dark gray?",
@@ -70,7 +70,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-005",
+    key: "ASK-005",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #8｜颜色 / 面料类｜Can i customize the color for sage green?",
@@ -83,7 +83,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-006",
+    key: "ASK-006",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #17｜颜色 / 面料类｜из какой ткани",
@@ -96,7 +96,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-007",
+    key: "ASK-007",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #28｜颜色 / 面料类｜can i have this one in a red wine color?",
@@ -109,7 +109,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-008",
+    key: "ASK-008",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #32｜颜色 / 面料类｜Hello. What materials do you have?",
@@ -122,7 +122,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-009",
+    key: "ASK-009",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #39｜颜色 / 面料类｜disponible. la matiere",
@@ -135,7 +135,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-010",
+    key: "ASK-010",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #53｜颜色 / 面料类｜Combien de pour cent la laine?",
@@ -148,7 +148,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-011",
+    key: "ASK-011",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #54｜颜色 / 面料类｜Ya pas de vrai laine?",
@@ -161,7 +161,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-012",
+    key: "QUOTE-001",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #7｜问价类｜what is the discount ?",
@@ -174,7 +174,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-013",
+    key: "QUOTE-002",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #13｜问价类｜How much will it cost if i buy a sample?",
@@ -187,7 +187,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-014",
+    key: "QUOTE-003",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #14｜问价类｜السعر شكد",
@@ -200,7 +200,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-015",
+    key: "QUOTE-004",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #33｜问价类｜How much would a wool/silk tuxedo cost? Super 150?",
@@ -213,7 +213,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-016",
+    key: "QUOTE-005",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #34｜问价类｜1 set How much",
@@ -226,7 +226,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-017",
+    key: "QUOTE-006",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #37｜问价类｜I want to buy one suit. Please tell me the price, and if it ",
@@ -239,7 +239,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-018",
+    key: "QUOTE-007",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #38｜问价类｜The price of the suit I want to buy is listed as $63.31 each",
@@ -252,7 +252,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-019",
+    key: "QUOTE-008",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #44｜问价类｜Ce costume coûte combien? une pièce",
@@ -265,7 +265,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-020",
+    key: "QUOTE-009",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #46｜问价类｜how much 1 pc only need for gala night, can you send mo pict",
@@ -278,7 +278,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-021",
+    key: "QUOTE-010",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #50｜问价类｜شلون سعره",
@@ -291,7 +291,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-022",
+    key: "QUOTE-011",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #55｜问价类｜Oui ça me reviendrait à combien du 100 pour 100",
@@ -304,7 +304,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-023",
+    key: "QUOTE-012",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #57｜问价类｜And can you do 1piece to buy first and check? If yes, how mu",
@@ -317,7 +317,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-024",
+    key: "QUOTE-013",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #63｜问价类｜si je veux deux pièces de chacune tout ferais combien ?",
@@ -330,7 +330,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-025",
+    key: "QUOTE-014",
     scene: "quote",
     category: "通用",
     note_zh: "v2.1 #70｜问价类｜how much is this in Kenyan shillings and are you able to del",
@@ -343,7 +343,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-026",
+    key: "ASK-012",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #9｜MOQ / 1件类｜what is the minimum quantity for mass purchase ?",
@@ -356,7 +356,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-027",
+    key: "ASK-013",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #10｜MOQ / 1件类｜Can i order 1 pc only?",
@@ -369,7 +369,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-028",
+    key: "ASK-014",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #11｜MOQ / 1件类｜What do you mean by one sample?",
@@ -382,7 +382,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-029",
+    key: "ASK-015",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #12｜MOQ / 1件类｜I can purchase sample item so i can buy 1 pc only?",
@@ -395,7 +395,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-030",
+    key: "ASK-016",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #19｜MOQ / 1件类｜Can i order for 1pcs?",
@@ -408,7 +408,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-031",
+    key: "ASK-017",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #21=47｜MOQ / 1件类｜Color: Black; Size: Xs; Quantity: 1.0;",
@@ -421,7 +421,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-032",
+    key: "ASK-018",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #30｜MOQ / 1件类｜Free Samples??",
@@ -434,7 +434,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-033",
+    key: "ASK-019",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #45｜MOQ / 1件类｜On peut avoir une pièce",
@@ -447,7 +447,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-034",
+    key: "ASK-020",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #62｜MOQ / 1件类｜Peut-on envoyer des échantillons en port dû ?",
@@ -460,7 +460,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-035",
+    key: "ASK-021",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #66｜MOQ / 1件类｜i want this. from Bangladesh, 1 pcs",
@@ -473,7 +473,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-036",
+    key: "ASK-022",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #69｜MOQ / 1件类｜no vende solo una pieza?",
@@ -486,7 +486,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-037",
+    key: "ASK-023",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #71｜MOQ / 1件类｜okay. how about 2 pieces? my address is Nairobi CBD",
@@ -499,7 +499,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-038",
+    key: "ASK-024",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #24｜定制类｜hello, do u a cept customizable",
@@ -512,7 +512,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-039",
+    key: "ASK-025",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #25｜定制类｜my own styles, can u customizable?",
@@ -525,7 +525,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-040",
+    key: "ASK-026",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #41｜定制类｜Custom black tuxedo with white lace appliqué for prom",
@@ -538,7 +538,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-041",
+    key: "ASK-027",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #58｜定制类｜Lo quisiera igual pero las tiras en los hombros y color verd",
@@ -551,7 +551,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-042",
+    key: "ASK-028",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #61｜定制类｜Pouvez-vous imprimer un logo sur du tissu ?",
@@ -564,7 +564,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-043",
+    key: "ASK-029",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #67｜定制类｜Launching minimalist brand, NO MOQ 1 piece, ship to agent wa",
@@ -577,7 +577,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-044",
+    key: "ASK-030",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #72｜定制类｜Hello, can you customize it here?",
@@ -590,7 +590,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-045",
+    key: "ASK-031",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #15｜运输 / 交期类｜и сколько стоит доставка в Израиль",
@@ -603,7 +603,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-046",
+    key: "ASK-032",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #18｜运输 / 交期类｜сколько времени займёт",
@@ -616,7 +616,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-047",
+    key: "ASK-033",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #27｜运输 / 交期类｜Cuánto es el costo de envío a San Pedro Garza García, Nuevo ",
@@ -629,7 +629,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-048",
+    key: "ASK-034",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #40｜运输 / 交期类｜livre en france. dou vien le produit",
@@ -642,7 +642,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-049",
+    key: "ASK-035",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #59｜运输 / 交期类｜Como hago para el pago y cuánto demorarian en hecerlo???",
@@ -655,7 +655,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-050",
+    key: "ASK-036",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #60｜运输 / 交期类｜Está bien y en cuánto tiempo pueden tenerlo listo?",
@@ -668,7 +668,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-051",
+    key: "ASK-037",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #5｜付款类｜How can we finalize the purchase?",
@@ -681,7 +681,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-052",
+    key: "ASK-038",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #29｜付款类｜comment je peux payer",
@@ -694,7 +694,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-053",
+    key: "ASK-039",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #6｜信任 / 照片 / 目录类｜Measurement guide photo request",
@@ -707,7 +707,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-054",
+    key: "ASK-040",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #16｜信任 / 照片 / 目录类｜можно настоящее фото?",
@@ -720,7 +720,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-055",
+    key: "ASK-041",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #23｜信任 / 照片 / 目录类｜como é as costas desse vestido?",
@@ -733,7 +733,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-056",
+    key: "ASK-042",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #31｜信任 / 照片 / 目录类｜Damn, what's your instagram account?",
@@ -746,7 +746,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-057",
+    key: "ASK-043",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #42｜信任 / 照片 / 目录类｜can you send me photos of similar completed suits so I can s",
@@ -759,7 +759,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-058",
+    key: "ASK-044",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #43｜信任 / 照片 / 目录类｜how would u describe the quality of the suits",
@@ -772,7 +772,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-059",
+    key: "ASK-045",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #49｜信任 / 照片 / 目录类｜Si vous avez un catalogue ca serait top",
@@ -785,7 +785,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-060",
+    key: "ASK-046",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #52｜信任 / 照片 / 目录类｜share website or WeChat QR code for woman dresses",
@@ -798,7 +798,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-061",
+    key: "ASK-047",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #56｜信任 / 照片 / 目录类｜so that's mean you don't have it in stock?",
@@ -811,7 +811,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-062",
+    key: "ASK-048",
     scene: "ask",
     category: "通用",
     note_zh: "v2.1 #68｜信任 / 照片 / 目录类｜Do you have a catalogue / videos / pictures of the real prod",
@@ -824,7 +824,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-063",
+    key: "FIRST-001",
     scene: "first",
     category: "通用",
     note_zh: "v2.1 #20｜综合 / 首回类｜Hi, I'm interested in your supply for this.",
@@ -837,7 +837,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-064",
+    key: "FIRST-002",
     scene: "first",
     category: "通用",
     note_zh: "v2.1 #22｜综合 / 首回类｜Bonjour, je suis intéressé par votre offre pour ce produit.",
@@ -850,7 +850,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-065",
+    key: "FIRST-003",
     scene: "first",
     category: "通用",
     note_zh: "v2.1 #26｜综合 / 首回类｜Hola, estoy explorando opciones... Color: Verde esmeralda; T",
@@ -863,7 +863,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-066",
+    key: "FIRST-004",
     scene: "first",
     category: "通用",
     note_zh: "v2.1 #35=36｜综合 / 首回类｜I want to buy the suit you see in the picture",
@@ -876,7 +876,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-067",
+    key: "FIRST-005",
     scene: "first",
     category: "通用",
     note_zh: "v2.1 #48｜综合 / 首回类｜Je peux juste commander une seule? C'est pour un mariage. Si",
@@ -889,7 +889,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-068",
+    key: "FIRST-006",
     scene: "first",
     category: "通用",
     note_zh: "v2.1 #51｜综合 / 首回类｜Bonjour, je recherche un nouveau fournisseur.",
@@ -902,7 +902,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-069",
+    key: "FIRST-007",
     scene: "first",
     category: "通用",
     note_zh: "v2.1 #64｜综合 / 首回类｜Hi are the mens suit and women dresses available as pre-made",
@@ -915,7 +915,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "v21-070",
+    key: "FIRST-008",
     scene: "first",
     category: "通用",
     note_zh: "v2.1 #65｜综合 / 首回类｜How to order custom suit for men and women dress?",
@@ -928,7 +928,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "nudge-3step",
+    key: "NUDGE-001",
     scene: "nudge",
     category: "通用",
     note_zh: "买家3天以上没回时用：点名+给一条图上看不到的定制信息+只问两个问题",
@@ -943,7 +943,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "first-design-4q",
+    key: "FIRST-009",
     scene: "first",
     category: "通用",
     note_zh: "买家发来自有设计图求报价时用：先问清身份、数量、预算、交期再谈能不能做",
@@ -956,7 +956,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "ask-sample-4q",
+    key: "ASK-049",
     scene: "ask",
     category: "通用",
     note_zh: "买家确认要做样品后用：款式、样品预算、交期、尺码一次问齐",
@@ -971,7 +971,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "quote-multi-sample",
+    key: "QUOTE-015",
     scene: "quote",
     category: "通用",
     note_zh: "多款样品一起报价时用：逐行填实价再发出",
@@ -987,7 +987,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "ask-change-fabric",
+    key: "ASK-050",
     scene: "ask",
     category: "通用",
     note_zh: "客户下单后要求换面料/改方案时用：先说没问题再说代价，请客户确认后执行",
@@ -1002,7 +1002,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "ask-preship-confirm",
+    key: "ASK-051",
     scene: "ask",
     category: "通用",
     note_zh: "发货前最终确认用：收齐电话+详细地址，谈妥进口税由谁付",
@@ -1017,7 +1017,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "ask-taxid-address",
+    key: "ASK-052",
     scene: "ask",
     category: "通用",
     note_zh: "发往有清关税号要求的国家时用：索要税号+电话+地址，并提前告知进口税到付",
@@ -1032,7 +1032,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "quote-tuxedo-fabric",
+    key: "QUOTE-016",
     scene: "quote",
     category: "西装",
     note_zh: "高端面料西装/燕尾服询盘用：先报起报价格占位，问清数量/颜色/尺码/交期",
@@ -1047,7 +1047,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "first-which-product",
+    key: "FIRST-010",
     scene: "first",
     category: "通用",
     note_zh: "询盘没说要哪款时用：请买家发款名/截图/链接，并介绍定制服务",
@@ -1060,7 +1060,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "ask-suit-3piece",
+    key: "ASK-053",
     scene: "ask",
     category: "西装",
     note_zh: "男士西装询盘用：颜色、尺码/量体数据、1件是样衣还是批量开头",
@@ -1073,7 +1073,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "ask-suit-es",
+    key: "ASK-054",
     scene: "ask",
     category: "西装",
     note_zh: "西语西装询盘用：款式（请发图）、尺码数量、交期",
@@ -1086,7 +1086,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "ask-size-no-style",
+    key: "ASK-055",
     scene: "ask",
     category: "西装",
     note_zh: "买家只给了尺码没说款式时用：请确认款式（发图）+数量",
@@ -1100,7 +1100,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "quote-tuxedo-sample",
+    key: "QUOTE-017",
     scene: "quote",
     category: "西装",
     note_zh: "定制西装/燕尾服询盘用：要量体数据、翻领偏好、国家邮编核算运费",
@@ -1115,7 +1115,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "ask-which-jacket",
+    key: "ASK-056",
     scene: "ask",
     category: "通用",
     note_zh: "询盘只说品类没指明款式时用：请买家明确款式颜色尺码数量",
@@ -1128,7 +1128,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "first-hi-only",
+    key: "FIRST-011",
     scene: "first",
     category: "通用",
     note_zh: "询盘只有问好没实质内容时用：产品、尺码、数量三问",
@@ -1141,7 +1141,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "ask-mermaid-gown",
+    key: "ASK-057",
     scene: "ask",
     category: "晚礼服",
     note_zh: "晚礼服询盘用：颜色、尺码、样衣还是试单",
@@ -1154,7 +1154,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "ask-metallic-mermaid",
+    key: "ASK-058",
     scene: "ask",
     category: "晚礼服",
     note_zh: "晚礼服询盘用：颜色、尺码、样衣还是试单；样衣交期占位须填实",
@@ -1168,7 +1168,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "ask-lace-gown-de",
+    key: "ASK-059",
     scene: "ask",
     category: "晚礼服",
     note_zh: "德语晚礼裙询盘用：颜色、尺码、大概数量",
@@ -1181,7 +1181,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "first-halter-custom",
+    key: "FIRST-012",
     scene: "first",
     category: "晚礼服",
     note_zh: "买家问产品细节但无照片时用",
@@ -1194,7 +1194,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "quote-dress-ar",
+    key: "QUOTE-018",
     scene: "quote",
     category: "晚礼服",
     note_zh: "阿语客户问价时用：先报公开价格区间占位，让客户报数量和国家再给实价含运费",
@@ -1209,7 +1209,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "first-pic-inquiry",
+    key: "FIRST-013",
     scene: "first",
     category: "通用",
     note_zh: "买家发产品图询盘时的标准开场",
@@ -1222,7 +1222,7 @@ export const TEMPLATES = [
     ],
   },
   {
-    key: "quote-tuxedo-fr",
+    key: "QUOTE-019",
     scene: "quote",
     category: "西装",
     note_zh: "法语西装/燕尾服询盘用：要尺码数量、国家邮编；样衣价、交期均为占位",
