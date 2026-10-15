@@ -1,7 +1,8 @@
 {
   "dependencies": {
     "better-sqlite3": "^12.11.1",
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "undici": "^8.12.1"
   },
   "name": "garment-mgmt-server",
   "private": true,
@@ -9,5 +10,5 @@
     "start": "node src/index.js"
   },
   "type": "module",
-  "version": "0.10.3"
+  "version": "0.10.4"
 }
