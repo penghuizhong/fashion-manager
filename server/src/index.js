@@ -29,7 +29,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.2',
+  version: '0.10.3',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -613,11 +613,14 @@ app.put('/api/reply-templates/:id/tags', (req, res) => {
 });
 
 // ---------- admin 配置 & AI 话术助手（v0.8.0） ----------
+// v0.10.3：模型不再硬编码——管理后台从 /models 拉取列表，下拉框选择；
+// 后台模型（backend_model）专供 LLM 理解层用，可选便宜快的模型。
 const ADMIN_DEFAULTS = {
   base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  chat_model: 'qwen-plus',
-  embedding_model: 'text-embedding-v4',
-  vision_model: 'qwen-vl-plus',
+  chat_model: '',
+  backend_model: '',
+  embedding_model: '',
+  vision_model: '',
   api_key: '',
 };
 function getAdminConfig(includeKey = false) {
@@ -625,9 +628,10 @@ function getAdminConfig(includeKey = false) {
   const m = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   const cfg = {
     base_url: m.base_url || ADMIN_DEFAULTS.base_url,
-    chat_model: m.chat_model || ADMIN_DEFAULTS.chat_model,
-    embedding_model: m.embedding_model || ADMIN_DEFAULTS.embedding_model,
-    vision_model: m.vision_model || ADMIN_DEFAULTS.vision_model,
+    chat_model: m.chat_model || '',
+    backend_model: m.backend_model || '',
+    embedding_model: m.embedding_model || '',
+    vision_model: m.vision_model || '',
   };
   if (includeKey) cfg.api_key = m.api_key || '';
   return cfg;
@@ -648,7 +652,7 @@ app.put('/api/admin/config', (req, res) => {
     'ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
   );
   const t = now();
-  for (const k of ['base_url', 'chat_model', 'embedding_model', 'vision_model']) {
+  for (const k of ['base_url', 'chat_model', 'backend_model', 'embedding_model', 'vision_model']) {
     if (b[k] !== undefined) up.run(k, String(b[k]).slice(0, 500), t);
   }
   // api_key 为空时不覆盖旧值
@@ -656,6 +660,50 @@ app.put('/api/admin/config', (req, res) => {
     up.run('api_key', String(b.api_key).trim(), t);
   }
   res.json({ ok: true, ...getAdminConfig(false), has_key: adminHasKey() });
+});
+// 拉取可用模型列表（不硬编码）：GET {base_url}/models
+app.get('/api/admin/models', async (req, res) => {
+  const cfg = getAdminConfig(true);
+  if (!cfg.api_key) return res.status(400).json({ error: '未配置 API Key' });
+  try {
+    const url = cfg.base_url.replace(/\/+$/, '') + '/models';
+    const r = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${cfg.api_key}` },
+      signal: AbortSignal.timeout(20000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((d.error && d.error.message) || `模型服务返回 ${r.status}`);
+    const models = (d.data || []).map((m) => m.id).filter(Boolean).sort();
+    res.json({ models });
+  } catch (e) {
+    res.status(500).json({ error: `拉取模型列表失败：${e.message || e}` });
+  }
+});
+// 连通性测试：用选定的聊天模型发一条最小请求
+app.post('/api/admin/test', async (req, res) => {
+  const cfg = getAdminConfig(true);
+  if (!cfg.api_key) return res.status(400).json({ error: '未配置 API Key' });
+  const model = (req.body && req.body.model) || cfg.chat_model;
+  if (!model) return res.status(400).json({ error: '未选择模型' });
+  try {
+    const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 5,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((d.error && d.error.message) || `模型服务返回 ${r.status}`);
+    const reply = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
+    res.json({ ok: true, model, reply: reply.slice(0, 100) });
+  } catch (e) {
+    res.status(500).json({ error: `连通性测试失败：${e.message || e}` });
+  }
 });
 
 // AI 检索：关键词 LIKE（gloss_zh/note_zh/key/category/语言变体）
@@ -688,6 +736,8 @@ const TAG_VOCAB = {
 };
 const INTENT_SCENE = { '问价': 'quote', '打招呼': 'first', '跟进': 'nudge' };
 async function llmUnderstand(message, cfg) {
+  const model = cfg.backend_model || cfg.chat_model;
+  if (!model) throw new Error('未配置后台模型');
   const vocabStr = Object.entries(TAG_VOCAB).map(([g, ws]) => `${g}：${ws.join('、')}`).join('\n');
   const sys = '你是询盘理解助手。分析买家消息，只输出 JSON，不要输出其他文字。\n' +
     '格式：{"intent":"问价|问MOQ|问样品|问交期|问运费|问定制|问产品|打招呼|跟进|其他",' +
@@ -700,7 +750,7 @@ async function llmUnderstand(message, cfg) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
     body: JSON.stringify({
-      model: cfg.chat_model,
+      model,
       response_format: { type: 'json_object' },
       messages: [{ role: 'system', content: sys }, { role: 'user', content: message }],
       temperature: 0.1,
@@ -839,17 +889,15 @@ app.post('/api/ai/assist', async (req, res) => {
   if (message.length > 2000) return res.status(400).json({ error: '消息过长（最多 2000 字）' });
 
   // v0.10.2 新管线：LLM 理解（意图/标签/关键词）→ 精准检索；失败时回退旧检索
-  // [临时禁用] 调试 fetch failed 问题
   let candidates;
   let under = null;
-  // try {
-  //   under = await llmUnderstand(message, cfg);
-  //   candidates = smartRetrieve(under, message);
-  // } catch (e) {
-  //   candidates = [];
-  // }
-  // if (!candidates.length) candidates = aiRetrieve(message);
-  candidates = aiRetrieve(message);
+  try {
+    under = await llmUnderstand(message, cfg);
+    candidates = smartRetrieve(under, message);
+  } catch (e) {
+    candidates = [];
+  }
+  if (!candidates.length) candidates = aiRetrieve(message);
   if (!candidates.length) return res.status(404).json({ error: '话术库中没有匹配的模板' });
 
   const sys = '你是话术库助手。从候选模板中选最匹配的一条，输出 JSON {template_id, slots:{name:value}}。' +
