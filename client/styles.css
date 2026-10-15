@@ -209,3 +209,16 @@ mark.slotval{background:rgba(250,200,0,.35);color:inherit;border-radius:3px;padd
 .modal-foot{display:flex;gap:8px;justify-content:flex-end;padding-top:14px;
   border-top:1px solid var(--border);margin-top:14px}
 .modal-foot .btn{min-width:80px}
+
+/* 标签系统 v0.10.0 */
+.tchip{font-size:12px;border:1px solid var(--border);border-radius:20px;padding:5px 12px;
+  background:var(--bg);color:var(--text);cursor:default;white-space:nowrap}
+.tchip.sm{font-size:11px;padding:3px 9px}
+.tagchecks{display:flex;gap:6px;flex-wrap:wrap}
+.tagchecks .tchip{cursor:pointer}
+.tagchecks .tchip.on{border-color:var(--accent);color:var(--accent);font-weight:700}
+.tagrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 0;
+  border-bottom:1px solid var(--border)}
+.tagops{display:flex;gap:6px}
+.tagops .chip{padding:4px 10px}
+.tagops .chip.danger{color:var(--danger);border-color:var(--danger)}

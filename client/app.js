@@ -398,6 +398,14 @@ const SCENE_ORDER = ['first', 'ask', 'quote', 'nudge'];
 const VAR_TYPES = ['text', 'number', 'date'];
 const VAR_TYPE_ZH = { text: '文本', number: '数字', date: '日期' };
 let tplQuery = '';
+let tplTagFilter = '';
+let tagCache = null;
+async function loadTags(force) {
+  if (tagCache && !force) return tagCache;
+  tagCache = await api('/api/tags');
+  return tagCache;
+}
+const TAG_GROUPS = ['款式', '轮廓', '领型', '袖型', '元素', '面料属性', '颜色', '话题'];
 
 /* ---------- 列表：QA 模式（Q 场景句 + A 中文首句预览），点卡开弹窗 ---------- */
 let tplCurrentIds = [];
@@ -502,9 +510,22 @@ return;
 app.innerHTML = `${topbar('回复模板库')}
 <div class="page" style="padding-top:10px">
 <input id="t-q" class="searchbar" placeholder="搜索：标题 / 正文 / 使用说明" value="${esc(tplQuery)}" autocomplete="off">
+<div class="rowline mt8" style="gap:8px">
+<select id="t-tag" style="flex:1"><option value="">全部标签</option></select>
 <button class="btn ghost" id="t-new">+ 新增模板</button>
+</div>
 <div id="t-list" class="mt8"><div class="empty">加载中…</div></div>
 </div>`;
+const tagSel = $('#t-tag');
+loadTags().then((tags) => {
+tagSel.innerHTML = '<option value="">全部标签</option>' + TAG_GROUPS.map((g) => {
+const items = tags.filter((x) => x.grp === g);
+if (!items.length) return '';
+return `<optgroup label="${g}">${items.map((x) =>
+`<option value="${esc(x.name)}" ${tplTagFilter === x.name ? 'selected' : ''}>${esc(x.name)}${x.used ? ` (${x.used})` : ''}</option>`).join('')}</optgroup>`;
+}).join('');
+}).catch(() => {});
+tagSel.onchange = (e) => { tplTagFilter = e.target.value; load(); };
 $('#t-new').onclick = () => {
 history.pushState({ tplModal: 'new', tplMode: 'edit' }, '', '#/tpl/new');
 tplModalPushed = true;
@@ -514,10 +535,13 @@ const rowHtml = (t) => {
 if (!tplCurrentIds.includes(t.id)) tplCurrentIds.push(t.id); // 常用+分组重复展示，导航列表去重
 const q = t.note_zh || t.title;
 const a = aPreview(t);
+const tagHtml = (t.tags && t.tags.length)? `<div class="rowline mt4" style="flex-wrap:wrap;gap:4px">${t.tags.map((g) =>
+`<span class="tchip sm">${esc(g.name)}</span>`).join('')}</div>`: '';
 return `
 <div class="card tappable qa-card" data-id="${t.id}">
 <div class="qa-line"><span class="qa-mark q">Q</span><span class="qa-qtext">${esc(q)}</span></div>
 ${a? `<div class="qa-line"><span class="qa-mark a">A</span><span class="qa-atext">${esc(a)}</span></div>`: ''}
+${tagHtml}
 ${t.usage_count > 0? `<div class="rowline mt4"><span class="muted" style="font-size:11px;margin-left:auto">用过${t.usage_count}</span></div>`: ''}
 </div>`;
 };
@@ -550,7 +574,12 @@ openTplModal(id);
 };
 let timer = null;
 const load = async () => {
-try { draw(await api('/api/reply-templates' + (tplQuery.trim()? '?q=' + encodeURIComponent(tplQuery.trim()): '')));}
+try {
+const qs = [];
+if (tplQuery.trim()) qs.push('q=' + encodeURIComponent(tplQuery.trim()));
+if (tplTagFilter) qs.push('tag=' + encodeURIComponent(tplTagFilter));
+draw(await api('/api/reply-templates' + (qs.length? '?' + qs.join('&'): '')));
+}
 catch (e) { $('#t-list').innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;}
 };
 $('#t-q').oninput = (e) => {
@@ -590,7 +619,14 @@ note_zh: t? t.note_zh: '',
 gloss_zh: t? (t.gloss_zh || ''): '',
 source_buyer: t? t.source_buyer: '',
 vars: t? t.vars.map((v) => ({...v})): [],
+tag_ids: [],
 };
+if (!isNew) {
+try {
+const cur = await api('/api/reply-templates/' + t.id + '/tags');
+editState.tag_ids = cur.map((x) => x.id);
+} catch (e) { /* 打标失败不阻塞编辑 */ }
+}
 
 /* ---- 使用模式 ---- */
 const idx = () => tplCurrentIds.indexOf(t? t.id: -1);
@@ -693,6 +729,8 @@ ${editState.vars.map((v) => `<button class="chip" data-ins="{{${esc(v.name)}}}">
 <textarea id="f-gloss" style="min-height:180px" placeholder="中文话术，填空位用 {{变量名}}，落款用 {{snippet:signature}}">${esc(editState.gloss_zh)}</textarea>
 <label class="fl">来源（可选）</label>
 <input id="f-src" value="${esc(editState.source_buyer)}" placeholder="如 marlen-kell-rosario">
+<label class="fl">打标（只能选词表内的词，不许手写）</label>
+<div id="f-tags"><div class="muted">标签加载中…</div></div>
 <div class="btnrow mt8">
 <button class="btn" id="f-save">${isNew? '创建模板': '保存修改'}</button>
 <button class="btn ghost" id="f-cancel">取消</button>
@@ -767,6 +805,30 @@ if (g('#f-gloss')) editState.gloss_zh = g('#f-gloss').value;
 if (g('#f-src')) editState.source_buyer = g('#f-src').value;
 };
 const bindEdit = () => {
+const renderTagChecks = async () => {
+const box = mb().querySelector('#f-tags');
+if (!box) return;
+try {
+const tags = await loadTags();
+box.innerHTML = TAG_GROUPS.map((g) => {
+const items = tags.filter((x) => x.grp === g);
+if (!items.length) return '';
+return `<div class="mt8"><div class="muted" style="font-size:12px;margin-bottom:4px">${g}</div>
+<div class="tagchecks">${items.map((x) =>
+`<label class="tchip${editState.tag_ids.includes(x.id) ? ' on' : ''}"><input type="checkbox" data-tag="${x.id}" ${editState.tag_ids.includes(x.id) ? 'checked' : ''} style="display:none">${esc(x.name)}</label>`
+).join('')}</div></div>`;
+}).join('');
+box.querySelectorAll('[data-tag]').forEach((cb) => {
+cb.onchange = () => {
+const id = Number(cb.dataset.tag);
+const lbl = cb.closest('.tchip');
+if (cb.checked) { if (!editState.tag_ids.includes(id)) editState.tag_ids.push(id); lbl.classList.add('on'); }
+else { editState.tag_ids = editState.tag_ids.filter((x) => x !== id); lbl.classList.remove('on'); }
+};
+});
+} catch (e) { box.innerHTML = `<div class="muted">标签加载失败：${esc(e.message)}</div>`; }
+};
+renderTagChecks();
 mb().querySelectorAll('#f-insert.chip').forEach((b) => {
 b.onclick = () => {
 const ta = mb().querySelector('#f-gloss');
@@ -803,8 +865,10 @@ const body = { scene: editState.scene, category: editState.category.trim() || '�
 note_zh: editState.note_zh.trim(), gloss_zh: editState.gloss_zh.trim(),
 source_buyer: editState.source_buyer.trim(), vars: editState.vars};
 try {
-if (isNew) { await api('/api/reply-templates', { method: 'POST', body: JSON.stringify(body)}); toast('已创建');}
+let savedId = t? t.id: null;
+if (isNew) { const r = await api('/api/reply-templates', { method: 'POST', body: JSON.stringify(body)}); savedId = r.id; toast('已创建');}
 else { await api('/api/reply-templates/' + t.id, { method: 'PUT', body: JSON.stringify(body)}); toast('已保存');}
+if (savedId) await api('/api/reply-templates/' + savedId + '/tags', { method: 'PUT', body: JSON.stringify({ tag_ids: editState.tag_ids }) });
 await viewTplList(null, true);
 Modal.close();
 } catch (e) { toast(e.message);}
@@ -927,13 +991,78 @@ function adminModelHTML() {
   </div>`;
 }
 function adminTagsHTML() {
-  return `<div class="empty">标签系统（0.3）开发中，<br>词表定稿后在这里管理。</div>`;
+  return `<div id="admin-tags">
+    <div class="rowline" style="gap:8px;margin-bottom:8px">
+      <input id="tag-new-name" placeholder="新标签名" style="flex:2">
+      <select id="tag-new-grp" style="flex:1">${TAG_GROUPS.map((g) => `<option>${g}</option>`).join('')}</select>
+      <button class="btn" id="tag-add" style="flex:0 0 auto">新增</button>
+    </div>
+    <div class="muted" style="font-size:12px;margin-bottom:8px">改名/删除/合并即时生效；删除标签会清除它的全部打标关联。</div>
+    <div id="tag-list"><div class="empty">加载中…</div></div>
+  </div>`;
+}
+async function adminTagsBind() {
+  const box = document.getElementById('tag-list');
+  if (!box) return;
+  const draw = async () => {
+    let tags;
+    try { tags = await api('/api/tags'); tagCache = tags; }
+    catch (e) { box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+    box.innerHTML = TAG_GROUPS.map((g) => {
+      const items = tags.filter((x) => x.grp === g);
+      if (!items.length) return '';
+      return `<div class="mt8"><div class="muted" style="font-size:12px;margin-bottom:4px">${g}（${items.length}）</div>
+      ${items.map((x) => `<div class="tagrow" data-id="${x.id}">
+        <span class="tchip sm">${esc(x.name)}${x.used ? ` <span class="muted">×${x.used}</span>` : ''}</span>
+        <span class="tagops">
+          <button class="chip" data-act="rename">改名</button>
+          <button class="chip" data-act="merge">合并</button>
+          <button class="chip danger" data-act="del">删除</button>
+        </span></div>`).join('')}</div>`;
+    }).join('') || '<div class="empty">暂无标签</div>';
+    box.querySelectorAll('.tagrow').forEach((row) => {
+      const id = Number(row.dataset.id);
+      const cur = tags.find((x) => x.id === id);
+      row.querySelector('[data-act="rename"]').onclick = async () => {
+        const name = prompt('改名：', cur.name);
+        if (!name || !name.trim() || name.trim() === cur.name) return;
+        try { await api('/api/tags/' + id, { method: 'PUT', body: JSON.stringify({ name: name.trim() }) }); toast('已改名'); draw(); }
+        catch (e) { toast(e.message); }
+      };
+      row.querySelector('[data-act="del"]').onclick = async () => {
+        if (!confirm(`删除标签「${cur.name}」？它的打标关联会一并清除。`)) return;
+        try { await api('/api/tags/' + id, { method: 'DELETE' }); toast('已删除'); draw(); }
+        catch (e) { toast(e.message); }
+      };
+      row.querySelector('[data-act="merge"]').onclick = async () => {
+        const others = tags.filter((x) => x.id !== id && x.grp === cur.grp);
+        if (!others.length) return toast('同组没有其他标签可合并');
+        const name = prompt(`把「${cur.name}」合并到哪个标签？\n可选：` + others.map((x) => x.name).join('、'));
+        if (!name) return;
+        const to = others.find((x) => x.name === name.trim());
+        if (!to) return toast('标签名不对，请照抄');
+        try { await api('/api/tags/merge', { method: 'POST', body: JSON.stringify({ from_id: id, to_id: to.id }) }); toast(`已合并到「${to.name}」`); draw(); }
+        catch (e) { toast(e.message); }
+      };
+    });
+  };
+  document.getElementById('tag-add').onclick = async () => {
+    const name = document.getElementById('tag-new-name').value.trim();
+    const grp = document.getElementById('tag-new-grp').value;
+    if (!name) return toast('标签名不能为空');
+    try {
+      await api('/api/tags', { method: 'POST', body: JSON.stringify({ name, grp }) });
+      document.getElementById('tag-new-name').value = '';
+      toast('已新增'); draw();
+    } catch (e) { toast(e.message); }
+  };
+  await draw();
 }
 async function bindAdmin() {
   document.querySelectorAll('#m-body [data-atab]').forEach((b) => {
     b.onclick = () => { adminTab = b.dataset.atab; Modal.setBody(adminBodyHTML()); bindAdmin(); };
   });
-  if (adminTab !== 'model') return;
+  if (adminTab !== 'model') { if (adminTab === 'tags') adminTagsBind(); return; }
   try {
     const c = await api('/api/admin/config');
     const g = (id) => document.getElementById(id);
