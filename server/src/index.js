@@ -29,7 +29,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.6',
+  version: '0.10.7',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -694,6 +694,7 @@ app.post('/api/admin/test', async (req, res) => {
         model,
         messages: [{ role: 'user', content: 'ping' }],
         max_tokens: 5,
+        enable_thinking: false,
       }),
       signal: AbortSignal.timeout(30000),
     });
@@ -755,6 +756,7 @@ async function llmUnderstand(message, cfg) {
       messages: [{ role: 'system', content: sys }, { role: 'user', content: message }],
       temperature: 0.1,
       max_tokens: 300,
+      enable_thinking: false,
     }),
     signal: AbortSignal.timeout(30000),
   });
@@ -921,6 +923,7 @@ app.post('/api/ai/assist', async (req, res) => {
         messages: [{ role: 'system', content: sys }, { role: 'user', content: userContent }],
         temperature: 0.2,
         max_tokens: 300,
+        enable_thinking: false,
       }),
       signal: AbortSignal.timeout(45000),
     });
