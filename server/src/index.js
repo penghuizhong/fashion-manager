@@ -929,7 +929,8 @@ app.post('/api/ai/assist', async (req, res) => {
     const text = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
     llm = JSON.parse(text);
   } catch (e) {
-    return res.status(500).json({ error: `AI 调用失败：${e.message || e}` });
+    const cause = e.cause ? ` (cause: ${e.cause.message || e.cause.code || e.cause})` : '';
+    return res.status(500).json({ error: `AI 调用失败：${e.message || e}${cause}` });
   }
 
   const templateId = Number(llm && llm.template_id);
