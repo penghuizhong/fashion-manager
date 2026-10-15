@@ -754,6 +754,7 @@ async function llmUnderstand(message, cfg) {
       response_format: { type: 'json_object' },
       messages: [{ role: 'system', content: sys }, { role: 'user', content: message }],
       temperature: 0.1,
+      max_tokens: 300,
     }),
     signal: AbortSignal.timeout(30000),
   });
@@ -919,6 +920,7 @@ app.post('/api/ai/assist', async (req, res) => {
         response_format: { type: 'json_object' },
         messages: [{ role: 'system', content: sys }, { role: 'user', content: userContent }],
         temperature: 0.2,
+        max_tokens: 300,
       }),
       signal: AbortSignal.timeout(45000),
     });
