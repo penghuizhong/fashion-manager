@@ -29,7 +29,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.15',
+  version: '0.10.16',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1079,7 +1079,7 @@ app.post('/api/ai/assist', async (req, res) => {
 app.post('/api/ai/assist/select', async (req, res) => {
   const { template_id, message } = req.body || {};
   if (!template_id || !message) return res.status(400).json({ error: '缺少参数' });
-  const cfg = getAIConfig();
+  const cfg = getAdminConfig(true);
   if (!cfg.api_key) return res.status(400).json({ error: '未配置 API Key' });
   const tpl = db.prepare('SELECT * FROM templates WHERE id=?').get(Number(template_id));
   if (!tpl) return res.status(404).json({ error: '模板不存在' });
