@@ -29,7 +29,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.10',
+  version: '0.10.11',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -346,9 +346,17 @@ function seedV4() {
         const r = upd.run(newK, t, oldK);
         if (r.changes) c++;
       }
+      // 清理 note_zh 开头的旧编号 "v2.1 #xx｜"
+      const nrows = db.prepare(`SELECT id, note_zh FROM templates WHERE origin='seed' AND note_zh LIKE 'v2.1 #%'`).all();
+      const nupd = db.prepare(`UPDATE templates SET note_zh=?, updated_at=? WHERE id=?`);
+      let nc = 0;
+      for (const r of nrows) {
+        const clean = r.note_zh.replace(/^v2\.1 #\d+(=\d+)?｜/, '');
+        if (clean !== r.note_zh) { nupd.run(clean, t, r.id); nc++; }
+      }
       db.prepare(`UPDATE app_config SET value='v5' WHERE key='seed_version'`).run();
     })();
-    console.log(`[seed] v4→v5 key重命名：${c} 个模板`);
+    console.log(`[seed] v4→v5 key重命名：${c} 个模板，note_zh清理：${nc} 条`);
     return;
   }
   if (row && row.value === 'v5') return;
