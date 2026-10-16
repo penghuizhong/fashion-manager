@@ -908,129 +908,144 @@ function viewStub(title, desc) {
   app.innerHTML = `${topbar(title)}<div class="page"><div class="empty">${esc(desc)}<br><br>该模块即将上线，<br>从左侧导航切到「样衣台」开始用。</div></div>`;
 }
 
-/* ---------------- AI 客服聊天页（GPT 风格） ---------------- */
-let chatHistory = [];
+/* ---------------- AI 客服聊天页（ChatGPT 风格） ---------------- */
 async function viewAi() {
   setNav('ai');
+  document.querySelector('.main').classList.add('chat-mode');
   const emp = empList.find((e) => e.id === curEmpId) || { name: 'AI 客服' };
   app.innerHTML = `
-  <div class="chat-page">
+  <div class="chat-wrap">
     <div class="chat-head">
       <span class="chat-title">${esc(emp.name)}</span>
-      <button class="btn ghost sm" id="chat-config">配置</button>
+      <button class="btn ghost sm chat-cfg" id="chat-config">配置</button>
     </div>
-    <div class="chat-msgs" id="chat-msgs"></div>
-    <div class="chat-input-bar">
-      <input type="file" id="chat-img" accept="image/*" style="display:none">
-      <button class="btn ghost chat-img-btn" id="chat-img-btn" aria-label="上传图片">
-        <svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-      </button>
-      <textarea id="chat-input" rows="1" placeholder="输入买家消息…"></textarea>
-      <button class="btn chat-send-btn" id="chat-send">发送</button>
+    <div class="chat-body" id="chat-body">
+      <div class="chat-inner" id="chat-inner">
+        <div class="chat-empty" id="chat-empty">
+          <h2>有什么可以帮你？</h2>
+          <div>粘贴买家消息，我来选话术；也可以发图片让我分析款式。</div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-foot">
+      <div class="chat-inputwrap">
+        <input type="file" id="chat-img" accept="image/*" style="display:none">
+        <button class="chat-attach" id="chat-attach" aria-label="上传图片">
+          <svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <textarea id="chat-input" rows="1" placeholder="输入买家消息…"></textarea>
+        <button class="chat-send" id="chat-send" aria-label="发送" disabled>
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+        </button>
+      </div>
+      <div class="chat-hint">AI 话术助手 · 内容仅供参考，发送前请核对</div>
     </div>
   </div>`;
   document.getElementById('chat-config').onclick = () => openEmpModal(curEmpId);
-  const msgsBox = document.getElementById('chat-msgs');
+  const body = document.getElementById('chat-body');
+  const inner = document.getElementById('chat-inner');
   const input = document.getElementById('chat-input');
   const sendBtn = document.getElementById('chat-send');
   const imgInput = document.getElementById('chat-img');
+  const emptyEl = () => document.getElementById('chat-empty');
 
-  const scrollBottom = () => { msgsBox.scrollTop = msgsBox.scrollHeight; };
-  const addMsg = (role, html) => {
-    const div = document.createElement('div');
-    div.className = `msg ${role}`;
-    div.innerHTML = `<div class="msg-bubble">${html}</div>`;
-    msgsBox.appendChild(div);
-    scrollBottom();
-    return div;
+  const scrollBottom = () => { body.scrollTop = body.scrollHeight; };
+  const hideEmpty = () => { const e = emptyEl(); if (e) e.remove(); };
+  const addUser = (html) => {
+    hideEmpty();
+    const d = document.createElement('div');
+    d.className = 'cmsg user';
+    d.innerHTML = `<div class="ububble">${html}</div>`;
+    inner.appendChild(d); scrollBottom();
+  };
+  const addAi = (html) => {
+    hideEmpty();
+    const d = document.createElement('div');
+    d.className = 'cmsg ai';
+    d.innerHTML = `<div class="atext">${html}</div>`;
+    inner.appendChild(d); scrollBottom();
+    return d;
   };
   const addTyping = () => {
-    const div = document.createElement('div');
-    div.className = 'msg ai';
-    div.innerHTML = '<div class="msg-bubble typing"><span></span><span></span><span></span></div>';
-    msgsBox.appendChild(div);
-    scrollBottom();
-    return div;
+    hideEmpty();
+    const d = document.createElement('div');
+    d.className = 'cmsg ai';
+    d.innerHTML = '<div class="atext"><span class="typing-dots"><span></span><span></span><span></span></span></div>';
+    inner.appendChild(d); scrollBottom();
+    return d;
   };
+  const updSend = () => { sendBtn.disabled = !input.value.trim(); };
 
-  // 发送文字
   const sendText = async () => {
     const message = input.value.trim();
     if (!message) return;
-    input.value = '';
-    input.style.height = 'auto';
-    addMsg('user', esc(message));
+    input.value = ''; updSend(); input.style.height = 'auto';
+    addUser(esc(message));
     const typing = addTyping();
     try {
       const d = await api('/api/ai/assist', {
-        method: 'POST',
-        body: JSON.stringify({ message, service_id: curEmpId }),
+        method: 'POST', body: JSON.stringify({ message, service_id: curEmpId }),
       });
       typing.remove();
       if (d.options && d.options.length) {
-        const optDiv = addMsg('ai', '为你找到以下话术，点击选择：');
-        const optsBox = document.createElement('div');
-        optsBox.className = 'msg-opts';
-        optsBox.innerHTML = d.options.map((o, i) => `
-          <div class="msg-opt" data-tid="${o.template_id}" data-rank="${i}">
-            <div class="opt-key">${esc(o.template_key)}${o.recommended ? ' ⭐推荐' : ''}</div>
-            <div class="opt-preview">${esc(o.preview || '')}</div>
-          </div>`).join('');
-        optDiv.querySelector('.msg-bubble').appendChild(optsBox);
+        const msgDiv = addAi('找到以下话术，点击选择：');
+        const opts = document.createElement('div');
+        opts.className = 'chat-opts';
+        opts.innerHTML = d.options.map((o, i) => `
+          <button class="chat-opt" data-tid="${o.template_id}" data-rank="${i}">
+            <div class="k">${esc(o.template_key)}${o.recommended ? ' · 推荐' : ''}</div>
+            <div class="p">${esc(o.preview || '')}</div>
+          </button>`).join('');
+        msgDiv.querySelector('.atext').appendChild(opts);
         scrollBottom();
-        optsBox.querySelectorAll('.msg-opt').forEach((el) => {
+        opts.querySelectorAll('.chat-opt').forEach((el) => {
           el.onclick = () => selectTemplate(Number(el.dataset.tid), message, Number(el.dataset.rank));
         });
       } else {
-        addMsg('ai', '没找到匹配的话术，换个说法试试。');
+        addAi('没找到匹配的话术，换个说法试试。');
       }
-      // 知识库命中
       if (d.kb_hits && d.kb_hits.length) {
-        addMsg('ai', `<div class="muted" style="font-size:12px">知识库参考：<br>${d.kb_hits.map((h) => `· ${esc(h.kb_name)}：${esc(h.text.slice(0, 100))}…`).join('<br>')}</div>`);
+        addAi(`<div style="font-size:13px;color:var(--muted)">知识库参考：<br>${d.kb_hits.map((h) => `· ${esc(h.kb_name)}：${esc(h.text.slice(0, 120))}…`).join('<br>')}</div>`);
       }
     } catch (e) {
       typing.remove();
-      addMsg('ai', `出错了：${esc(e.message)}`);
+      addAi(`出错了：${esc(e.message)}`);
     }
   };
-
-  // 选择模板后填空
   const selectTemplate = async (tid, message, rank) => {
     const typing = addTyping();
     try {
       const r = await api('/api/ai/assist/select', {
-        method: 'POST',
-        body: JSON.stringify({ template_id: tid, message, rank, service_id: curEmpId }),
+        method: 'POST', body: JSON.stringify({ template_id: tid, message, rank, service_id: curEmpId }),
       });
       typing.remove();
-      addMsg('ai', esc(r.text || '生成失败'));
-      if (r.copy_blocked) addMsg('ai', '<div class="muted" style="font-size:12px">⚠️ 该回复被护栏拦截，请检查后手动处理。</div>');
+      const html = esc(r.text || '生成失败').replace(/\n/g, '<br>');
+      addAi(`<p>${html}</p>`);
+      if (r.copy_blocked) addAi('<div style="font-size:13px;color:var(--muted)">该回复被护栏拦截，请检查后手动处理。</div>');
     } catch (e) {
       typing.remove();
-      addMsg('ai', `出错了：${esc(e.message)}`);
+      addAi(`出错了：${esc(e.message)}`);
     }
   };
 
-  // 发送图片
-  document.getElementById('chat-img-btn').onclick = () => imgInput.click();
-  imgInput.onchange = async () => {
+  document.getElementById('chat-attach').onclick = () => imgInput.click();
+  imgInput.onchange = () => {
     const file = imgInput.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = async (e) => {
       const dataUrl = e.target.result;
-      addMsg('user', `<img class="msg-img" src="${dataUrl}"><br>请分析这张图片`);
+      addUser(`<img class="cmsg-img" src="${dataUrl}">`);
       const typing = addTyping();
       try {
         const d = await api('/api/ai/vision', {
-          method: 'POST',
-          body: JSON.stringify({ image: dataUrl, service_id: curEmpId }),
+          method: 'POST', body: JSON.stringify({ image: dataUrl, service_id: curEmpId }),
         });
         typing.remove();
-        addMsg('ai', esc(d.text || '识图失败'));
+        addAi(`<p>${esc(d.text || '识图失败').replace(/\n/g, '<br>')}</p>`);
       } catch (err) {
         typing.remove();
-        addMsg('ai', `识图出错：${esc(err.message)}`);
+        addAi(`识图出错：${esc(err.message)}`);
       }
     };
     reader.readAsDataURL(file);
@@ -1038,16 +1053,16 @@ async function viewAi() {
   };
 
   sendBtn.onclick = sendText;
+  input.oninput = () => {
+    updSend();
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+  };
   input.onkeydown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); }
   };
-  input.oninput = () => {
-    input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
-  };
-  // 欢迎语
-  addMsg('ai', `你好，我是${esc(emp.name)}。粘贴买家消息，我来帮你选话术；也可以发图片让我分析。`);
 }
+
 
 /* ---------------- 管理设置弹窗（全局 Modal + 横向滑动二级导航） ---------------- */
 let adminTab = 'model';
