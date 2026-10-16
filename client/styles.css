@@ -327,6 +327,23 @@ mark.slotval{background:rgba(250,200,0,.35);color:inherit;border-radius:3px;padd
   background:none;border-radius:8px;cursor:pointer;font-size:14px;color:var(--text)}
 .emp-item:hover{background:var(--surface2)}
 .emp-item.on{background:var(--surface2);font-weight:600}
+/* v0.15.0：员工 ⋮ 菜单（桌面 hover / 手机长按显示） */
+.emp-item{position:relative;padding-right:36px;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.emp-item .emp-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.emp-menu-btn{display:none;position:absolute;right:4px;top:50%;transform:translateY(-50%);
+  width:28px;height:28px;border:none;border-radius:8px;background:var(--surface2);padding:0;
+  color:var(--muted);align-items:center;justify-content:center;cursor:pointer}
+.emp-menu-btn:hover{color:var(--text)}
+.emp-item:hover .emp-menu-btn,.emp-item.show-menu .emp-menu-btn{display:flex}
+.pin-ic{width:13px;height:13px;color:var(--muted);flex:0 0 auto}
+.emp-empty{padding:8px 12px;font-size:13px;color:var(--muted);line-height:2.2}
+/* ⋮ 动作面板 */
+.act-list{display:flex;flex-direction:column;gap:2px}
+.act-item{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border:none;
+  border-radius:8px;background:none;color:var(--text);font-size:14px;cursor:pointer;text-align:left}
+.act-item:hover{background:var(--surface2)}
+.act-item .ic{color:var(--muted)}
+.act-item.danger,.act-item.danger .ic{color:var(--btn-danger-text)}
 .emp-item .ic{color:var(--muted)}
 .emp-item.on .ic{color:var(--text)}
 /* 禁止下拉刷新 */
