@@ -908,87 +908,145 @@ function viewStub(title, desc) {
   app.innerHTML = `${topbar(title)}<div class="page"><div class="empty">${esc(desc)}<br><br>该模块即将上线，<br>从左侧导航切到「样衣台」开始用。</div></div>`;
 }
 
-/* ---------------- AI 客服（v0.8.0） ---------------- */
+/* ---------------- AI 客服聊天页（GPT 风格） ---------------- */
+let chatHistory = [];
 async function viewAi() {
   setNav('ai');
-  app.innerHTML = `${topbar('AI 客服')}
-  <div class="page">
-    <div id="ai-warn"></div>
-    <textarea id="ai-msg" rows="4" placeholder="粘贴买家消息，AI 从话术库选模板并填空"></textarea>
-    <button class="btn" id="ai-go" style="width:100%;margin-top:8px">生成话术</button>
-    <div id="ai-result" class="mt8"></div>
+  const emp = empList.find((e) => e.id === curEmpId) || { name: 'AI 客服' };
+  app.innerHTML = `
+  <div class="chat-page">
+    <div class="chat-head">
+      <span class="chat-title">${esc(emp.name)}</span>
+      <button class="btn ghost sm" id="chat-config">配置</button>
+    </div>
+    <div class="chat-msgs" id="chat-msgs"></div>
+    <div class="chat-input-bar">
+      <input type="file" id="chat-img" accept="image/*" style="display:none">
+      <button class="btn ghost chat-img-btn" id="chat-img-btn" aria-label="上传图片">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+      </button>
+      <textarea id="chat-input" rows="1" placeholder="输入买家消息…"></textarea>
+      <button class="btn chat-send-btn" id="chat-send">发送</button>
+    </div>
   </div>`;
-  const warn = $('#ai-warn'), ta = $('#ai-msg'), go = $('#ai-go'), res = $('#ai-result');
-  let hasKey = false;
-  try { hasKey = !!(await api('/api/admin/config')).has_key; }
-  catch (e) { warn.innerHTML = `<div class="miss">配置读取失败：${esc(e.message)}</div>`; }
-  if (!hasKey) {
-    warn.innerHTML = `<div class="card ai-warnbox"><div>请先配置模型服务，才能使用 AI 客服。</div><button class="btn ghost" id="ai-open-admin">去配置</button></div>`;
-    go.disabled = true; go.classList.add('dim');
-    const oa = $('#ai-open-admin');
-    if (oa) oa.onclick = () => openAdminModal();
-  }
-  go.onclick = async () => {
-    const message = ta.value.trim();
-    if (!message) return toast('请先粘贴买家消息');
-    go.disabled = true; res.innerHTML = '<div class="muted">AI 生成中…</div>';
-    try {
-      const d = await api('/api/ai/assist', { method: 'POST', body: JSON.stringify({ message, service_id: curEmpId }) });
-      aiRenderOptions(d, message);
-    } catch (e) { res.innerHTML = `<div class="miss">${esc(e.message)}</div>`; }
-    finally { go.disabled = false; }
+  document.getElementById('chat-config').onclick = () => openEmpModal(curEmpId);
+  const msgsBox = document.getElementById('chat-msgs');
+  const input = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('chat-send');
+  const imgInput = document.getElementById('chat-img');
+
+  const scrollBottom = () => { msgsBox.scrollTop = msgsBox.scrollHeight; };
+  const addMsg = (role, html) => {
+    const div = document.createElement('div');
+    div.className = `msg ${role}`;
+    div.innerHTML = `<div class="msg-bubble">${html}</div>`;
+    msgsBox.appendChild(div);
+    scrollBottom();
+    return div;
   };
-}
-/* Top-3 选项卡 */
-function aiRenderOptions(d, message) {
-  const res = $('#ai-result');
-  const opts = d.options || [];
-  if (!opts.length) { res.innerHTML = '<div class="miss">没有匹配的话术</div>'; return; }
-  res.innerHTML = `<div class="muted" style="margin-bottom:8px">AI 推荐 ${opts.length} 条，点击选用：</div>` +
-    opts.map((o, i) => `
-    <div class="card tappable" data-tid="${o.template_id}" style="margin-bottom:8px">
-      <div class="rowline" style="gap:6px;margin-bottom:4px">
-        <span class="tchip">${esc(o.template_key)}</span>
-        ${o.recommended ? '<span class="tchip hot">推荐</span>' : ''}
-        <span class="muted" style="font-size:12px">${esc(o.note_zh || '')}</span>
-      </div>
-      <div style="font-size:13px;color:var(--muted)">${esc(o.preview)}</div>
-    </div>`).join('');
-  res.querySelectorAll('.card').forEach((c) => {
-    c.onclick = async () => {
-      const tid = Number(c.dataset.tid);
-      const rank = Array.from(res.querySelectorAll('.card')).indexOf(c);
-      res.innerHTML = '<div class="muted">加载话术…</div>';
+  const addTyping = () => {
+    const div = document.createElement('div');
+    div.className = 'msg ai';
+    div.innerHTML = '<div class="msg-bubble typing"><span></span><span></span><span></span></div>';
+    msgsBox.appendChild(div);
+    scrollBottom();
+    return div;
+  };
+
+  // 发送文字
+  const sendText = async () => {
+    const message = input.value.trim();
+    if (!message) return;
+    input.value = '';
+    input.style.height = 'auto';
+    addMsg('user', esc(message));
+    const typing = addTyping();
+    try {
+      const d = await api('/api/ai/assist', {
+        method: 'POST',
+        body: JSON.stringify({ message, service_id: curEmpId }),
+      });
+      typing.remove();
+      if (d.options && d.options.length) {
+        const optDiv = addMsg('ai', '为你找到以下话术，点击选择：');
+        const optsBox = document.createElement('div');
+        optsBox.className = 'msg-opts';
+        optsBox.innerHTML = d.options.map((o, i) => `
+          <div class="msg-opt" data-tid="${o.template_id}" data-rank="${i}">
+            <div class="opt-key">${esc(o.template_key)}${o.recommended ? ' ⭐推荐' : ''}</div>
+            <div class="opt-preview">${esc(o.preview || '')}</div>
+          </div>`).join('');
+        optDiv.querySelector('.msg-bubble').appendChild(optsBox);
+        scrollBottom();
+        optsBox.querySelectorAll('.msg-opt').forEach((el) => {
+          el.onclick = () => selectTemplate(Number(el.dataset.tid), message, Number(el.dataset.rank));
+        });
+      } else {
+        addMsg('ai', '没找到匹配的话术，换个说法试试。');
+      }
+      // 知识库命中
+      if (d.kb_hits && d.kb_hits.length) {
+        addMsg('ai', `<div class="muted" style="font-size:12px">知识库参考：<br>${d.kb_hits.map((h) => `· ${esc(h.kb_name)}：${esc(h.text.slice(0, 100))}…`).join('<br>')}</div>`);
+      }
+    } catch (e) {
+      typing.remove();
+      addMsg('ai', `出错了：${esc(e.message)}`);
+    }
+  };
+
+  // 选择模板后填空
+  const selectTemplate = async (tid, message, rank) => {
+    const typing = addTyping();
+    try {
+      const r = await api('/api/ai/assist/select', {
+        method: 'POST',
+        body: JSON.stringify({ template_id: tid, message, rank, service_id: curEmpId }),
+      });
+      typing.remove();
+      addMsg('ai', esc(r.text || '生成失败'));
+      if (r.copy_blocked) addMsg('ai', '<div class="muted" style="font-size:12px">⚠️ 该回复被护栏拦截，请检查后手动处理。</div>');
+    } catch (e) {
+      typing.remove();
+      addMsg('ai', `出错了：${esc(e.message)}`);
+    }
+  };
+
+  // 发送图片
+  document.getElementById('chat-img-btn').onclick = () => imgInput.click();
+  imgInput.onchange = async () => {
+    const file = imgInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      const dataUrl = e.target.result;
+      addMsg('user', `<img class="msg-img" src="${dataUrl}"><br>请分析这张图片`);
+      const typing = addTyping();
       try {
-        const r = await api('/api/ai/assist/select', { method: 'POST', body: JSON.stringify({ template_id: tid, message, rank, service_id: curEmpId }) });
-        aiRenderResult(r);
-      } catch (e) { res.innerHTML = `<div class="miss">${esc(e.message)}</div>`; }
+        const d = await api('/api/ai/vision', {
+          method: 'POST',
+          body: JSON.stringify({ image: dataUrl, service_id: curEmpId }),
+        });
+        typing.remove();
+        addMsg('ai', esc(d.text || '识图失败'));
+      } catch (err) {
+        typing.remove();
+        addMsg('ai', `识图出错：${esc(err.message)}`);
+      }
     };
-  });
-}
-function aiRenderResult(d) {
-  const res = $('#ai-result');
-  const miss = (d.missing && d.missing.length) ? d.missing : [];
-  res.innerHTML = `
-  <div class="card">
-    <div class="muted">出处：${esc(d.template_key)} · ${esc(d.note_zh || '')}</div>
-    <div class="talkbox mt8">${esc(d.filled_text)}</div>
-    ${miss.length ? `<div class="miss">红线：${miss.map(esc).join('、')}未填写，填好才能复制</div>` : '<div class="miss"></div>'}
-    <button class="btn" id="ai-copy" style="width:100%;margin-top:8px">复制话术</button>
-    <button class="btn ghost" id="ai-edit-tpl" style="width:100%;margin-top:8px">编辑这条话术</button>
-    <div class="muted" style="text-align:center;margin-top:6px">红线：必填项没填时不许复制 · 粘贴到阿里消息中心，平台自动翻译</div>
-  </div>`;
-  const cp = $('#ai-copy');
-  if (cp) cp.onclick = async () => {
-    if (miss.length) return toast(`红线：${miss.join('、')}不能为空，填好再复制`);
-    try {
-      await navigator.clipboard.writeText(d.filled_text);
-      api(`/api/reply-templates/${d.template_id}/use`, { method: 'POST' }).catch(() => {});
-      toast('已复制，去阿里消息中心粘贴');
-    } catch (e) { toast('复制失败：' + e.message); }
+    reader.readAsDataURL(file);
+    imgInput.value = '';
   };
-  const et = $('#ai-edit-tpl');
-  if (et) et.onclick = () => openTplModal(d.template_id, 'edit', { skipList: true });
+
+  sendBtn.onclick = sendText;
+  input.onkeydown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendText(); }
+  };
+  input.oninput = () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  };
+  // 欢迎语
+  addMsg('ai', `你好，我是${esc(emp.name)}。粘贴买家消息，我来帮你选话术；也可以发图片让我分析。`);
 }
 
 /* ---------------- 管理设置弹窗（全局 Modal + 横向滑动二级导航） ---------------- */
@@ -1640,7 +1698,13 @@ async function loadEmps() {
         <span>${esc(e.name)}</span>
       </button>`).join('');
     box.querySelectorAll('[data-emp]').forEach((b) => {
-      b.onclick = () => { curEmpId = Number(b.dataset.emp); loadEmps(); openEmpModal(curEmpId); };
+      b.onclick = () => {
+        curEmpId = Number(b.dataset.emp);
+        chatHistory = [];
+        loadEmps();
+        location.hash = '#/ai';
+        viewAi();
+      };
     });
   } catch (e) { box.innerHTML = ''; }
 }
