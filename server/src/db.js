@@ -206,5 +206,77 @@ import { TAGS as SEED_TAGS } from './seedTagsV1.js';
   }
 }
 
+// 模型管理相关表
+db.exec(`CREATE TABLE IF NOT EXISTS models (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  model_id TEXT NOT NULL UNIQUE,
+  display_name TEXT DEFAULT '',
+  description TEXT DEFAULT '',
+  category TEXT NOT NULL CHECK(category IN ('basic','visual','embedding')),
+  subcategory TEXT NOT NULL DEFAULT '',
+  provider_name TEXT DEFAULT '',
+  base_url TEXT DEFAULT '',
+  api_key TEXT DEFAULT '',
+  input_price REAL DEFAULT 0,
+  output_price REAL DEFAULT 0,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS model_providers (
+  category TEXT PRIMARY KEY,
+  provider_name TEXT DEFAULT '',
+  base_url TEXT DEFAULT '',
+  api_key TEXT DEFAULT '',
+  updated_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS model_prices (
+  model_id TEXT PRIMARY KEY,
+  input_price REAL NOT NULL DEFAULT 0,
+  output_price REAL NOT NULL DEFAULT 0,
+  unit TEXT DEFAULT 'USD/1K tokens',
+  updated_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS ai_usage_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  model TEXT NOT NULL, endpoint TEXT NOT NULL,
+  tokens_in INTEGER DEFAULT 0, tokens_out INTEGER DEFAULT 0,
+  cost REAL DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS ai_select_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  template_id INTEGER NOT NULL, template_key TEXT,
+  rank INTEGER NOT NULL, message TEXT,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS ai_empty_tag_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message TEXT NOT NULL, lang TEXT, keywords TEXT,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS ai_understand_cache (
+  msg_hash TEXT PRIMARY KEY, result_json TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS policies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  entry TEXT NOT NULL,
+  effective_from TEXT NOT NULL,
+  effective_to TEXT,
+  version INTEGER NOT NULL DEFAULT 1,
+  updated_by TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS review_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  week TEXT NOT NULL,
+  issue TEXT NOT NULL,
+  root_cause TEXT NOT NULL,
+  action TEXT NOT NULL,
+  action_type TEXT NOT NULL,
+  status TEXT DEFAULT 'todo',
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+
 export default db;
 export const now = () => new Date().toISOString();
