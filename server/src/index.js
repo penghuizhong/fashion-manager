@@ -53,7 +53,7 @@ function getServiceId(req) {
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.13.6',
+  version: '0.14.0',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1998,6 +1998,7 @@ app.delete('/api/admin/ai-services/:id', (req, res) => {
   db.prepare('DELETE FROM template_locales WHERE template_id IN (SELECT id FROM templates WHERE service_id=?)').run(id);
   db.prepare('DELETE FROM templates WHERE service_id=?').run(id);
   db.prepare('DELETE FROM tags WHERE service_id=?').run(id);
+  db.prepare('DELETE FROM chat_messages WHERE service_id=?').run(id);
   db.prepare('DELETE FROM ai_services WHERE id=?').run(id);
   res.json({ ok: true });
 });
@@ -2015,6 +2016,25 @@ app.put('/api/admin/ai-services/:id', (req, res) => {
       is_active !== undefined ? (is_active ? 1 : 0) : cur.is_active,
       Number(req.params.id)
     );
+  res.json({ ok: true });
+});
+
+// ---------- 员工独立聊天记录 ----------
+app.get('/api/ai/chat/history', (req, res) => {
+  const sid = Number(req.query.service_id) || 1;
+  const rows = db.prepare('SELECT id, role, content, created_at FROM chat_messages WHERE service_id=? ORDER BY id ASC LIMIT 200').all(sid);
+  res.json(rows);
+});
+app.post('/api/ai/chat/messages', (req, res) => {
+  const { service_id, role, content } = req.body || {};
+  const sid = Number(service_id) || 1;
+  if (!['user', 'ai'].includes(role) || !content) return res.status(400).json({ error: '参数错误' });
+  const r = db.prepare('INSERT INTO chat_messages (service_id, role, content) VALUES (?,?,?)').run(sid, role, String(content).slice(0, 8000));
+  res.json({ ok: true, id: r.lastInsertRowid });
+});
+app.delete('/api/ai/chat/history', (req, res) => {
+  const sid = Number(req.query.service_id) || 1;
+  db.prepare('DELETE FROM chat_messages WHERE service_id=?').run(sid);
   res.json({ ok: true });
 });
 
