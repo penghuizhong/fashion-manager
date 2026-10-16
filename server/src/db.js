@@ -338,5 +338,17 @@ db.exec(`CREATE TABLE IF NOT EXISTS kb_usage_log (
 )`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_usage_kb ON kb_usage_log(kb_id)`);
 
+// v0.12.0：AI 员工架构——tags/templates/knowledge_bases 归属到 ai_services
+for (const tbl of ['tags', 'templates', 'knowledge_bases']) {
+  const cols = db.prepare(`PRAGMA table_info(${tbl})`).all().map((c) => c.name);
+  if (!cols.includes('service_id')) {
+    db.exec(`ALTER TABLE ${tbl} ADD COLUMN service_id INTEGER NOT NULL DEFAULT 1`);
+    console.log(`[migrate] ${tbl} + service_id 列`);
+  }
+}
+db.exec(`CREATE INDEX IF NOT EXISTS idx_tags_service ON tags(service_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_templates_service ON templates(service_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_service ON knowledge_bases(service_id)`);
+
 export default db;
 export const now = () => new Date().toISOString();
