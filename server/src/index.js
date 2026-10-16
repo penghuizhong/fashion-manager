@@ -47,7 +47,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.21',
+  version: '0.10.22',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1194,7 +1194,35 @@ app.post('/api/ai/assist/select', aiRateLimit, aiMsgCheck, async (req, res) => {
 });
 
 // 短路/正常流程共用的收尾：护栏检查 + 渲染 + 返回
-function finishAssist(res, templateId, rawSlots, message, cfg, candidates) {
+async function faithfulnessCheck(filledText, slots, message, cfg) {
+  // 任务40: 高风险类全量二检 — 用便宜模型验证 claim 是否有来源支持
+  const sys = '你是 faithfulness 检查员。判断客服回复中的价格/交期数字是否有明确来源支持。' +
+    '来源只能是：用户消息原文、已填充的 slot 值。输出 JSON {"pass":true/false,"reason":""}。' +
+    '示例：回复"报价 $500"但 slot 为空 → {"pass":false,"reason":"价格无来源"}';
+  try {
+    const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
+      body: JSON.stringify({
+        model: cfg.backend_model || cfg.chat_model,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: sys },
+          { role: 'user', content: `回复：${filledText}\nSlots：${JSON.stringify(slots)}\n用户消息：${message}` },
+        ],
+        temperature: 0.1, max_tokens: 200, enable_thinking: false,
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) return { pass: true }; // 检查服务挂了就放行（fail open，避免阻塞）
+    const t = (d.choices?.[0]?.message?.content) || '{}';
+    return JSON.parse(t);
+  } catch (e) { return { pass: true }; }
+}
+
+async function finishAssist(res, templateId, rawSlots, message, cfg, candidates) {
   const tpl = candidates.find((c) => c.id === Number(templateId));
   if (!tpl) return res.status(500).json({ error: 'AI 返回了候选之外的模板，请重试' });
 
@@ -1202,11 +1230,122 @@ function finishAssist(res, templateId, rawSlots, message, cfg, candidates) {
   // 中文渲染：同 :id/render 的 ZH 逻辑（gloss_zh + 落款片段展开）
   const full = getTemplateFull(tpl.id);
   const filled_text = renderBody(expandSnippets(full.gloss_zh || '', 'ZH'), slots);
-  res.json({
+  // 任务40: 高风险类（价格/交期 slot 有值）全量二检
+  const highRisk = ['price', '价格', 'lead_time', '交期'].some((k) => String(slots[k] || '').trim());
+  if (highRisk) {
+    const check = await faithfulnessCheck(filled_text, slots, message, cfg);
+    if (!check.pass) {
+      // 任务42: 转人工上下文打包
+      return res.json({
+        ok: false, locked: true, reason: check.reason || 'faithfulness 检查未通过',
+        template_id: tpl.id, template_key: tpl.key,
+        hint: '已锁死转人工',
+        handoff: {
+          buyer_message: message,
+          candidates_top3: candidates.slice(0, 3).map((c) => ({ id: c.id, key: c.key, note_zh: c.note_zh })),
+          selected_template: { id: tpl.id, key: tpl.key, note_zh: tpl.note_zh },
+          missing_fields: missing,
+          guardrail_triggered: 'faithfulnessCheck',
+          slots,
+        },
+      });
+    }
+  }
+  // 任务41: 语气禁令检查
+  const { checkTone } = await import('./toneBans.js');
+  const violations = checkTone(filled_text);
+  const resp = {
     ok: true, template_id: tpl.id, template_key: tpl.key, note_zh: tpl.note_zh,
     filled_text, slots, missing,
-  });
+    tone_violations: violations.length ? violations : undefined,
+  };
+  // 任务42: 有缺失字段时也附上下文包（接手人直接看到卡点）
+  if (missing && missing.length) {
+    resp.handoff = {
+      buyer_message: message,
+      candidates_top3: candidates.slice(0, 3).map((c) => ({ id: c.id, key: c.key, note_zh: c.note_zh })),
+      selected_template: { id: tpl.id, key: tpl.key, note_zh: tpl.note_zh },
+      missing_fields: missing,
+      guardrail_triggered: 'missingRequiredSlots',
+      slots,
+    };
+  }
+  res.json(resp);
 }
+
+// 任务38: 政策库 — 只返回当前生效版本
+function getEffectivePolicies() {
+  const today = new Date().toISOString().slice(0, 10);
+  return db.prepare(
+    `SELECT * FROM policies WHERE effective_from <= ? AND (effective_to IS NULL OR effective_to >= ?) ORDER BY id`
+  ).all(today, today);
+}
+function checkPolicyRef(policyId) {
+  // 引用检查：过期返回需人工确认
+  const p = db.prepare('SELECT * FROM policies WHERE id=?').get(policyId);
+  if (!p) return { ok: false, reason: '政策不存在' };
+  const today = new Date().toISOString().slice(0, 10);
+  if (p.effective_from > today || (p.effective_to && p.effective_to < today)) {
+    return { ok: false, reason: '需人工确认', policy: p };
+  }
+  return { ok: true, policy: p };
+}
+// 政策 CRUD API
+app.get('/api/policies', (req, res) => {
+  res.json(db.prepare('SELECT * FROM policies ORDER BY id DESC').all());
+});
+app.post('/api/policies', (req, res) => {
+  const { entry, effective_from, effective_to, updated_by } = req.body || {};
+  if (!entry || !String(entry).trim()) return res.status(400).json({ error: '条目必填' });
+  if (!effective_from) return res.status(400).json({ error: '生效日期必填' });
+  // 原子化检查：拒绝模糊词
+  const fuzzy = ['大概', '一般', '通常', '可能', '左右'];
+  const hit = fuzzy.find((w) => String(entry).includes(w));
+  if (hit) return res.status(400).json({ error: `条目含模糊词"${hit}"，请改写为精确表述` });
+  const r = db.prepare(
+    'INSERT INTO policies (entry, effective_from, effective_to, updated_by) VALUES (?,?,?,?)'
+  ).run(String(entry).trim(), effective_from, effective_to || null, updated_by || '');
+  res.json({ ok: true, id: r.lastInsertRowid });
+});
+app.put('/api/policies/:id', (req, res) => {
+  const { entry, effective_from, effective_to } = req.body || {};
+  const cur = db.prepare('SELECT * FROM policies WHERE id=?').get(req.params.id);
+  if (!cur) return res.status(404).json({ error: '政策不存在' });
+  // 版本化：更新时版本号+1
+  db.prepare(
+    'UPDATE policies SET entry=COALESCE(?,entry), effective_from=COALESCE(?,effective_from), effective_to=?, version=version+1 WHERE id=?'
+  ).run(entry, effective_from, effective_to || null, req.params.id);
+  res.json({ ok: true });
+});
+app.delete('/api/policies/:id', (req, res) => {
+  db.prepare('DELETE FROM policies WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// 任务43: 每周复盘 API
+app.get('/api/reviews', (req, res) => {
+  res.json(db.prepare('SELECT * FROM review_log ORDER BY week DESC, id DESC').all());
+});
+app.post('/api/reviews', (req, res) => {
+  const { week, issue, root_cause, action, action_type } = req.body || {};
+  if (!week || !issue || !root_cause || !action || !action_type)
+    return res.status(400).json({ error: 'week/issue/root_cause/action/action_type 必填' });
+  const r = db.prepare(
+    'INSERT INTO review_log (week, issue, root_cause, action, action_type) VALUES (?,?,?,?,?)'
+  ).run(week, issue, root_cause, action, action_type);
+  res.json({ ok: true, id: r.lastInsertRowid });
+});
+app.put('/api/reviews/:id/done', (req, res) => {
+  db.prepare("UPDATE review_log SET status='done' WHERE id=?").run(req.params.id);
+  res.json({ ok: true });
+});
+// 复盘完成率检查：本周定位的问题是否都有沉淀
+app.get('/api/reviews/weekly/:week', (req, res) => {
+  const rows = db.prepare('SELECT * FROM review_log WHERE week=?').all(req.params.week);
+  const total = rows.length;
+  const done = rows.filter((r) => r.status === 'done').length;
+  res.json({ week: req.params.week, total, done, pending: total - done, rows });
+});
 
 // ---------- static ----------
 app.use(express.static(path.join(__dirname, '..', '..', 'client')));
