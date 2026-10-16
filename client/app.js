@@ -1005,8 +1005,9 @@ function adminBodyHTML() {
     <button class="atab ${adminTab === 'tpl' ? 'on' : ''}" data-atab="tpl">模板台</button>
     <button class="atab ${adminTab === 'price' ? 'on' : ''}" data-atab="price">模型价格</button>
     <button class="atab ${adminTab === 'mgmt' ? 'on' : ''}" data-atab="mgmt">模型管理</button>
+    <button class="atab ${adminTab === 'kb' ? 'on' : ''}" data-atab="kb">知识库</button>
     <button class="atab ${adminTab === 'stats' ? 'on' : ''}" data-atab="stats">统计</button>
-  </div><div id="admin-pane">${adminTab === 'model' ? adminModelHTML() : adminTab === 'tags' ? adminTagsHTML() : adminTab === 'price' ? adminPriceHTML() : adminTab === 'mgmt' ? '<div class="admin-mgmt"><div class="empty">加载中…</div></div>' : adminTab === 'stats' ? '<div class="admin-stats"><div class="empty">加载中…</div></div>' : '<div id="admin-tpl"><div class="empty">加载中…</div></div>'}</div>`;
+  </div><div id="admin-pane">${adminTab === 'model' ? adminModelHTML() : adminTab === 'tags' ? adminTagsHTML() : adminTab === 'price' ? adminPriceHTML() : adminTab === 'mgmt' ? '<div class="admin-mgmt"><div class="empty">加载中…</div></div>' : adminTab === 'kb' ? '<div class="admin-kb"><div class="empty">加载中…</div></div>' : adminTab === 'stats' ? '<div class="admin-stats"><div class="empty">加载中…</div></div>' : '<div id="admin-tpl"><div class="empty">加载中…</div></div>'}</div>`;
 }
 function adminPriceHTML() {
   return `<div class="admin-price">
@@ -1340,10 +1341,11 @@ async function adminMgmtBind() {
           </div>`).join('');
       }).join('') || '<div class="empty">暂无上架模型</div>';
       listEl.querySelectorAll('[data-del]').forEach((b) => {
-        b.onclick = async () => {
-          if (!confirm('确定下架？')) return;
-          await api(`/api/admin/models/${b.dataset.del}`, { method: 'DELETE' });
-          loadModels();
+        b.onclick = () => {
+          Modal.confirm({ title: '下架模型', body: '确定下架该模型吗？', okText: '下架', onOk: async () => {
+            await api(`/api/admin/models/${b.dataset.del}`, { method: 'DELETE' });
+            loadModels();
+          }});
         };
       });
       listEl.querySelectorAll('[data-price]').forEach((b) => {
@@ -1446,7 +1448,13 @@ async function adminStatsBind() {
           </div>
           <div class="muted" style="font-size:11px">${(m.by_endpoint || []).map((e) => `${epName[e.endpoint] || e.endpoint} ${e.calls}次`).join('　')}</div>
         </div>`;
-      }).join('') || '<div class="empty">暂无数据</div>'}`;
+      }).join('') || '<div class="empty">暂无数据</div>'}
+      <div class="frm-sec" style="font-weight:700;margin-top:12px">知识库命中（近30天）</div>
+      ${(d.by_kb || []).map((k) => `
+        <div class="frm-row" style="font-size:13px;align-items:center">
+          <span style="flex:1">${esc(k.kb_name || ('KB#' + k.kb_id))}</span>
+          <span class="muted" style="font-size:12px">${k.hits}次命中</span>
+        </div>`).join('') || '<div class="empty">暂无知识库命中</div>'}`;
   } catch (e) { wrap.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
 }
 async function bindAdmin() {
@@ -1458,6 +1466,7 @@ async function bindAdmin() {
     if (adminTab === 'tpl') { adminTplBind(); return; }
     if (adminTab === 'price') { adminPriceBind(); return; }
     if (adminTab === 'mgmt') { adminMgmtBind(); return; }
+    if (adminTab === 'kb') { adminKbBind(); return; }
     if (adminTab === 'stats') { adminStatsBind(); return; }
     return;
   }
@@ -1474,6 +1483,152 @@ async function bindAdmin() {
       msg.style.color = '#16a34a'; msg.textContent = '已保存';
     } catch (e) { msg.style.color = ''; msg.textContent = e.message; }
     finally { save.disabled = false; }
+  };
+}
+
+async function adminKbBind() {
+  const box = document.querySelector('.admin-kb');
+  if (!box) return;
+  const draw = async () => {
+    let kbs = [], svc = null;
+    try {
+      [kbs, svc] = await Promise.all([
+        api('/api/admin/kb'),
+        api('/api/admin/ai-services').then((r) => r[0]).catch(() => null),
+      ]);
+    } catch (e) { box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+    const mounted = svc ? JSON.parse(svc.kb_ids || '[]') : [];
+    const statusLabel = { empty: '空', processing: '处理中', ready: '就绪', error: '出错' };
+    box.innerHTML = `
+      <div class="frm-hint" style="margin-bottom:8px">知识库插件：上传 QA 文稿，网站自动切片+向量化。<br>挂载到 AI 客服后即时生效（热插拔）。</div>
+      <div class="frm-row" style="margin-bottom:12px">
+        <button class="btn grow1" id="kb-new">+ 新建知识库</button>
+        <button class="btn ghost grow1" id="kb-import">导入92话术模板</button>
+      </div>
+      <div class="frm-sec" style="font-weight:700">已挂载（${mounted.length}）</div>
+      <div id="kb-mounted">${mounted.length ? '' : '<div class="empty">未挂载知识库</div>'}</div>
+      <div class="frm-sec" style="font-weight:700;margin-top:8px">全部知识库（${kbs.length}）</div>
+      <div id="kb-list"></div>`;
+    const kbMap = Object.fromEntries(kbs.map((k) => [k.id, k]));
+    // 已挂载
+    document.getElementById('kb-mounted').innerHTML = mounted
+      .map((id) => kbMap[id]).filter(Boolean)
+      .map((k) => `<div class="frm-row" style="align-items:center;font-size:13px">
+        <span style="flex:1">${esc(k.name)}<br><span class="muted" style="font-size:11px">${k.chunk_count} 切片 · ${statusLabel[k.status] || k.status}</span></span>
+        <button class="btn ghost sm" data-unmount="${k.id}">卸载</button>
+      </div>`).join('');
+    // 全部列表
+    document.getElementById('kb-list').innerHTML = kbs.map((k) => `
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">
+        <div style="font-weight:700;font-size:14px">${esc(k.name)}
+          <span class="muted" style="font-weight:400;font-size:11px"> · ${statusLabel[k.status] || k.status}</span>
+        </div>
+        ${k.description ? `<div class="muted" style="font-size:12px;margin:4px 0">${esc(k.description)}</div>` : ''}
+        ${k.scenario ? `<div class="muted" style="font-size:11px">场景：${esc(k.scenario)}</div>` : ''}
+        <div class="muted" style="font-size:11px;margin:4px 0">${k.doc_count} 文档 · ${k.chunk_count} 切片 · ${(k.char_count / 1000).toFixed(1)}k 字</div>
+        <div class="frm-row" style="margin-top:6px">
+          ${mounted.includes(k.id)
+            ? `<button class="btn ghost sm" data-unmount="${k.id}">卸载</button>`
+            : `<button class="btn ghost sm" data-mount="${k.id}" ${k.status !== 'ready' ? 'disabled' : ''}>挂载</button>`}
+          <button class="btn ghost sm" data-upload="${k.id}">上传文稿</button>
+          <button class="btn ghost sm" data-del-kb="${k.id}">删除</button>
+        </div>
+      </div>`).join('') || '<div class="empty">暂无知识库</div>';
+    // 绑定
+    document.getElementById('kb-new').onclick = () => kbNewWizard(draw);
+    document.getElementById('kb-import').onclick = async () => {
+      try {
+        const r = await api('/api/admin/kb/import-templates', { method: 'POST', body: JSON.stringify({}) });
+        toast(r.msg || '已开始导入');
+        // 轮询状态
+        const timer = setInterval(async () => {
+          try {
+            const kbs = await api('/api/admin/kb');
+            const kb = kbs.find((k) => k.id === r.kb_id);
+            if (kb && (kb.status === 'ready' || kb.status === 'error')) {
+              clearInterval(timer);
+              toast(kb.status === 'ready' ? `导入完成（${kb.chunk_count} 切片）` : '导入出错');
+              draw();
+            }
+          } catch (e) {}
+        }, 3000);
+        setTimeout(() => clearInterval(timer), 120000);
+      } catch (e) { toast(e.message); }
+    };
+    box.querySelectorAll('[data-mount]').forEach((b) => b.onclick = async () => {
+      const ids = [...mounted, Number(b.dataset.mount)];
+      await api(`/api/admin/ai-services/${svc.id}`, { method: 'PUT', body: JSON.stringify({ kb_ids: ids }) });
+      toast('已挂载'); draw();
+    });
+    box.querySelectorAll('[data-unmount]').forEach((b) => b.onclick = async () => {
+      const ids = mounted.filter((id) => id !== Number(b.dataset.unmount));
+      await api(`/api/admin/ai-services/${svc.id}`, { method: 'PUT', body: JSON.stringify({ kb_ids: ids }) });
+      toast('已卸载'); draw();
+    });
+    box.querySelectorAll('[data-del-kb]').forEach((b) => b.onclick = () => {
+      Modal.confirm({ title: '删除知识库', body: '确定删除该知识库及其全部文稿和切片吗？', okText: '删除', onOk: async () => {
+        await api(`/api/admin/kb/${b.dataset.delKb}`, { method: 'DELETE' });
+        toast('已删除'); draw();
+      }});
+    });
+    box.querySelectorAll('[data-upload]').forEach((b) => b.onclick = () => kbUploadModal(Number(b.dataset.upload), draw));
+  };
+  await draw();
+}
+// 新建知识库向导（全局弹窗）
+function kbNewWizard(onDone) {
+  Modal.open({ title: '新建知识库', body: `
+    <label class="fl">名称</label>
+    <input id="kbw-name" placeholder="如：婚纱 QA 库" autocomplete="off">
+    <label class="fl">场景标签（可选）</label>
+    <input id="kbw-scenario" placeholder="如：婚纱、西装" autocomplete="off">
+    <label class="fl">描述（可选）</label>
+    <input id="kbw-desc" placeholder="这个库是干什么的" autocomplete="off">
+    <div class="modal-foot">
+      <button class="btn ghost" id="kbw-cancel">取消</button>
+      <button class="btn" id="kbw-ok">创建</button>
+    </div>` });
+  document.getElementById('kbw-cancel').onclick = () => Modal.close();
+  document.getElementById('kbw-ok').onclick = async () => {
+    const name = document.getElementById('kbw-name').value.trim();
+    if (!name) return toast('请填写名称');
+    try {
+      await api('/api/admin/kb', { method: 'POST', body: JSON.stringify({
+        name,
+        scenario: document.getElementById('kbw-scenario').value.trim(),
+        description: document.getElementById('kbw-desc').value.trim(),
+      })});
+      Modal.close(); toast('已创建'); onDone();
+    } catch (e) { toast(e.message); }
+  };
+}
+// 上传文稿（全局弹窗）
+function kbUploadModal(kbId, onDone) {
+  Modal.open({ title: '上传文稿', body: `
+    <div class="frm-hint" style="margin-bottom:8px">支持 .txt / .md 文件，或直接粘贴文本。<br>上传后自动切片+向量化。</div>
+    <input type="file" id="kbu-file" accept=".txt,.md" style="margin-bottom:8px">
+    <label class="fl">或粘贴文本</label>
+    <textarea id="kbu-text" rows="6" placeholder="粘贴 QA 文稿内容…" style="width:100%"></textarea>
+    <div class="modal-foot">
+      <button class="btn ghost" id="kbu-cancel">取消</button>
+      <button class="btn" id="kbu-ok">上传并处理</button>
+    </div>` });
+  document.getElementById('kbu-cancel').onclick = () => Modal.close();
+  document.getElementById('kbu-ok').onclick = async () => {
+    const file = document.getElementById('kbu-file').files[0];
+    const text = document.getElementById('kbu-text').value.trim();
+    let filename = '粘贴文本.txt', content = text;
+    if (file) {
+      filename = file.name;
+      content = await file.text();
+    }
+    if (!content.trim()) return toast('请先选择文件或粘贴文本');
+    try {
+      const r = await api(`/api/admin/kb/${kbId}/upload`, {
+        method: 'POST', body: JSON.stringify({ filename, content }),
+      });
+      Modal.close(); toast(r.msg || '已开始处理'); onDone();
+    } catch (e) { toast(e.message); }
   };
 }
 
