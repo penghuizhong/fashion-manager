@@ -1355,6 +1355,10 @@ async function adminMgmtBind() {
           <div class="frm-row" style="align-items:center;font-size:13px">
             <span style="flex:1">${esc(m.display_name || m.model_id)}<br><span class="muted" style="font-size:11px">${esc(m.model_id)}</span></span>
             <span class="muted" style="font-size:11px">${esc((cats[k].subs || {})[m.subcategory] || m.subcategory)}</span>
+            ${m.subcategory === 'chat' ? `<button class="btn ghost sm" data-set="chat_model|${esc(m.model_id)}">设为对话</button>` : ''}
+            ${m.subcategory === 'backend' ? `<button class="btn ghost sm" data-set="backend_model|${esc(m.model_id)}">设为后台</button>` : ''}
+            ${m.subcategory === 'vision_understand' ? `<button class="btn ghost sm" data-set="vision_model|${esc(m.model_id)}">设为识图</button>` : ''}
+            ${m.subcategory === 'embedding' ? `<button class="btn ghost sm" data-set="embedding_model|${esc(m.model_id)}">设为向量</button>` : ''}
             <button class="btn ghost sm" data-del="${m.id}">下架</button>
           </div>`).join('');
       }).join('') || '<div class="empty">暂无上架模型</div>';
@@ -1363,6 +1367,13 @@ async function adminMgmtBind() {
           if (!confirm('确定下架？')) return;
           await api(`/api/admin/models/${b.dataset.del}`, { method: 'DELETE' });
           loadModels();
+        };
+      });
+      listEl.querySelectorAll('[data-set]').forEach((b) => {
+        b.onclick = async () => {
+          const [key, val] = b.dataset.set.split('|');
+          await api('/api/admin/config', { method: 'PUT', body: JSON.stringify({ [key]: val }) });
+          toast(`已设为当前${key === 'chat_model' ? '对话' : key === 'backend_model' ? '后台' : key === 'vision_model' ? '识图' : '向量'}模型`);
         };
       });
     } catch (e) { listEl.innerHTML = '<div class="empty">加载失败</div>'; }
