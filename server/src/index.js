@@ -45,9 +45,15 @@ const row = (r) => {
   return r;
 };
 
+// AI 员工：从请求取 service_id，默认 1（默认客服）
+function getServiceId(req) {
+  const v = (req.query && req.query.service_id) || (req.body && req.body.service_id);
+  const n = Number(v);
+  return n > 0 ? n : 1;
+}
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.11.0',
+  version: '0.12.0',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -462,8 +468,9 @@ const tplTitleOf = (t) => {
 // 列表：逻辑模板 + 可用语言 + 使用次数；q 跨全部语言变体搜索
 app.get('/api/reply-templates', (req, res) => {
   const { q = '', scene = '', tag = '' } = req.query;
-  const args = [];
-  let sql = 'SELECT t.* FROM templates t WHERE 1=1';
+  const sid = getServiceId(req);
+  const args = [sid];
+  let sql = 'SELECT t.* FROM templates t WHERE t.service_id=?';
   if (scene) { sql += ' AND t.scene=?'; args.push(scene); }
   if (tag) {
     sql += ` AND EXISTS (SELECT 1 FROM template_tags tt JOIN tags g ON g.id=tt.tag_id
@@ -665,20 +672,22 @@ app.delete('/api/snippets/:id', (req, res) => {
 // 打标只能选表内词：PUT /api/reply-templates/:id/tags 会校验 id 合法性，词表外写不进
 const TAG_GROUPS = ['款式', '轮廓', '领型', '袖型', '元素', '面料属性', '颜色', '话题'];
 app.get('/api/tags', (req, res) => {
-  const tags = db.prepare('SELECT id,grp,name,sort FROM tags ORDER BY sort,id').all();
+  const sid = getServiceId(req);
+  const tags = db.prepare('SELECT id,grp,name,sort FROM tags WHERE service_id=? ORDER BY sort,id').all(sid);
   const used = db.prepare('SELECT tag_id, COUNT(*) c FROM template_tags GROUP BY tag_id').all();
   const usedMap = new Map(used.map((u) => [u.tag_id, u.c]));
   res.json(tags.map((t) => ({ ...t, used: usedMap.get(t.id) || 0 })));
 });
 app.post('/api/tags', (req, res) => {
   const b = req.body || {};
+  const sid = getServiceId(req);
   const name = String(b.name || '').trim();
   const grp = String(b.grp || '').trim();
   if (!name) return res.status(400).json({ error: '标签名必填' });
   if (!TAG_GROUPS.includes(grp)) return res.status(400).json({ error: '分组必须是：' + TAG_GROUPS.join('、') });
   try {
-    const maxSort = db.prepare('SELECT COALESCE(MAX(sort),-1) m FROM tags').get().m;
-    const r = db.prepare('INSERT INTO tags (grp,name,sort) VALUES (?,?,?)').run(grp, name, maxSort + 1);
+    const maxSort = db.prepare('SELECT COALESCE(MAX(sort),-1) m FROM tags WHERE service_id=?').get(sid).m;
+    const r = db.prepare('INSERT INTO tags (grp,name,sort,service_id) VALUES (?,?,?,?)').run(grp, name, maxSort + 1, sid);
     res.json({ ok: true, id: r.lastInsertRowid });
   } catch {
     return res.status(400).json({ error: '该标签名已存在' });
@@ -1042,8 +1051,8 @@ function cosSim(a, b) {
   return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
 }
 // 知识库向量检索：多库合并，按相似度重排
-async function kbRetrieve(message, topK = 5) {
-  const svc = db.prepare('SELECT * FROM ai_services WHERE is_active=1 ORDER BY id LIMIT 1').get();
+async function kbRetrieve(message, topK = 5, serviceId = 1) {
+  const svc = db.prepare('SELECT * FROM ai_services WHERE id=?').get(serviceId);
   if (!svc) return [];
   const kbIds = JSON.parse(svc.kb_ids || '[]');
   if (!kbIds.length) return [];
@@ -1071,19 +1080,19 @@ async function kbRetrieve(message, topK = 5) {
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, topK);
 }
-function smartRetrieve(under, message) {
+function smartRetrieve(under, message, serviceId = 1) {
   const tagIds = under.product_tags.length
-    ? db.prepare(`SELECT id FROM tags WHERE name IN (${under.product_tags.map(() => '?').join(',')})`).all(...under.product_tags).map((r) => r.id)
+    ? db.prepare(`SELECT id FROM tags WHERE service_id=? AND name IN (${under.product_tags.map(() => '?').join(',')})`).all(serviceId, ...under.product_tags).map((r) => r.id)
     : [];
   const kws = under.keywords.length ? under.keywords : [message.slice(0, 20)];
   const scored = new Map();
   const stmt = db.prepare(
-    `SELECT t.id FROM templates t WHERE t.key LIKE ? OR t.note_zh LIKE ? OR t.gloss_zh LIKE ?
-     OR EXISTS (SELECT 1 FROM template_locales l WHERE l.template_id=t.id AND (l.title LIKE ? OR l.body LIKE ?))`
+    `SELECT t.id FROM templates t WHERE t.service_id=? AND (t.key LIKE ? OR t.note_zh LIKE ? OR t.gloss_zh LIKE ?
+     OR EXISTS (SELECT 1 FROM template_locales l WHERE l.template_id=t.id AND (l.title LIKE ? OR l.body LIKE ?)))`
   );
   for (const kw of kws) {
     const like = `%${kw}%`;
-    for (const r of stmt.all(like, like, like, like, like)) {
+    for (const r of stmt.all(serviceId, like, like, like, like, like)) {
       scored.set(r.id, (scored.get(r.id) || 0) + 10);
     }
   }
@@ -1097,15 +1106,15 @@ function smartRetrieve(under, message) {
   // 意图→场景：命中 +50
   const scene = INTENT_SCENE[under.intent];
   if (scene) {
-    const sstmt = db.prepare('SELECT id FROM templates WHERE scene=?');
-    for (const r of sstmt.all(scene)) {
+    const sstmt = db.prepare('SELECT id FROM templates WHERE service_id=? AND scene=?');
+    for (const r of sstmt.all(serviceId, scene)) {
       if (scored.has(r.id)) scored.set(r.id, scored.get(r.id) + 50);
     }
   }
   // 价格意图兜底：LLM判其他或没检出场景时，关键词才生效
   if ((!scene || under.intent === '其他') && hasPriceIntent(message)) {
-    const qstmt = db.prepare("SELECT id FROM templates WHERE scene='quote'");
-    for (const r of qstmt.all()) {
+    const qstmt = db.prepare("SELECT id FROM templates WHERE service_id=? AND scene='quote'");
+    for (const r of qstmt.all(serviceId)) {
       if (scored.has(r.id)) scored.set(r.id, scored.get(r.id) + 100);
     }
   }
@@ -1185,6 +1194,7 @@ function aiGuardrails(tpl, llmSlots, message) {
 
 app.post('/api/ai/assist', aiRateLimit, aiMsgCheck, async (req, res) => {
   const cfg = getAIConfig();
+  const serviceId = getServiceId(req);
   if (!cfg.api_key) return res.status(400).json({ error: '未配置模型服务' });
   const message = String((req.body && req.body.message) || '').trim();
   if (!message) return res.status(400).json({ error: '消息不能为空' });
@@ -1195,7 +1205,7 @@ app.post('/api/ai/assist', aiRateLimit, aiMsgCheck, async (req, res) => {
   let under = null;
   try {
     under = await llmUnderstand(message, cfg);
-    candidates = smartRetrieve(under, message);
+    candidates = smartRetrieve(under, message, serviceId);
     // 任务31: 空标签监控
     if (under && !under.product_tags.length && (under.keywords || []).length) {
       try {
@@ -1209,7 +1219,7 @@ app.post('/api/ai/assist', aiRateLimit, aiMsgCheck, async (req, res) => {
   if (!candidates.length) candidates = aiRetrieve(message);
   // 知识库检索（并行，不阻塞模板流程）
   let kbHits = [];
-  try { kbHits = await kbRetrieve(message, 3); } catch (e) {}
+  try { kbHits = await kbRetrieve(message, 3, serviceId); } catch (e) {}
   // 记 KB 使用日志（按库去重记一次）
   if (kbHits.length) {
     try {
@@ -1314,8 +1324,9 @@ app.post('/api/ai/assist/select', aiRateLimit, aiMsgCheck, async (req, res) => {
   const { template_id, message } = req.body || {};
   if (!template_id || !message) return res.status(400).json({ error: '缺少参数' });
   const cfg = getAIConfig();
+  const serviceId = getServiceId(req);
   if (!cfg.api_key) return res.status(400).json({ error: '未配置 API Key' });
-  const tpl = db.prepare('SELECT * FROM templates WHERE id=?').get(Number(template_id));
+  const tpl = db.prepare('SELECT * FROM templates WHERE id=? AND service_id=?').get(Number(template_id), serviceId);
   if (!tpl) return res.status(404).json({ error: '模板不存在' });
   const varStmt = db.prepare('SELECT name,type,required,label_zh FROM template_vars WHERE template_id=? ORDER BY sort,id');
   tpl.vars = varStmt.all(tpl.id);
@@ -1743,7 +1754,8 @@ app.get('/api/admin/models/stats', (req, res) => {
 
 // ---------- 知识库插件 CRUD ----------
 app.get('/api/admin/kb', (req, res) => {
-  const kbs = db.prepare('SELECT * FROM knowledge_bases ORDER BY updated_at DESC').all();
+  const sid = getServiceId(req);
+  const kbs = db.prepare('SELECT * FROM knowledge_bases WHERE service_id=? ORDER BY updated_at DESC').all(sid);
   res.json(kbs.map((k) => {
     const docs = db.prepare('SELECT COUNT(*) as n, SUM(char_count) as chars FROM kb_documents WHERE kb_id=?').get(k.id);
     const chunks = db.prepare('SELECT COUNT(*) as n FROM kb_chunks WHERE kb_id=?').get(k.id);
@@ -1752,10 +1764,11 @@ app.get('/api/admin/kb', (req, res) => {
 });
 app.post('/api/admin/kb', (req, res) => {
   const { name, description, scenario } = req.body || {};
+  const sid = getServiceId(req);
   if (!name || !String(name).trim()) return res.status(400).json({ error: '名称必填' });
   const r = db.prepare(
-    'INSERT INTO knowledge_bases (name, description, scenario) VALUES (?,?,?)'
-  ).run(String(name).trim(), String(description || ''), String(scenario || ''));
+    'INSERT INTO knowledge_bases (name, description, scenario, service_id) VALUES (?,?,?,?)'
+  ).run(String(name).trim(), String(description || ''), String(scenario || ''), sid);
   res.json({ ok: true, id: r.lastInsertRowid });
 });
 app.put('/api/admin/kb/:id', (req, res) => {
@@ -1876,15 +1889,16 @@ app.post('/api/admin/kb/:id/reprocess', async (req, res) => {
 // 一键导入：话术模板 → 知识库
 app.post('/api/admin/kb/import-templates', async (req, res) => {
   const { kb_id } = req.body || {};
+  const sid = getServiceId(req);
   // 找或建"话术库"知识库
   let kbId = kb_id ? Number(kb_id) : null;
   if (!kbId) {
-    const ex = db.prepare("SELECT id FROM knowledge_bases WHERE name='话术库 v2.1'").get();
+    const ex = db.prepare("SELECT id FROM knowledge_bases WHERE name='话术库 v2.1' AND service_id=?").get(sid);
     if (ex) kbId = ex.id;
     else {
       kbId = db.prepare(
-        "INSERT INTO knowledge_bases (name, description, scenario, status) VALUES ('话术库 v2.1','92 条话术模板导入','通用','processing')"
-      ).run().lastInsertRowid;
+        "INSERT INTO knowledge_bases (name, description, scenario, status, service_id) VALUES ('话术库 v2.1','92 条话术模板导入','通用','processing',?)"
+      ).run(sid).lastInsertRowid;
     }
   }
   const kb = db.prepare('SELECT * FROM knowledge_bases WHERE id=?').get(kbId);
@@ -1892,7 +1906,7 @@ app.post('/api/admin/kb/import-templates', async (req, res) => {
   // 异步导入
   (async () => {
     try {
-      const tpls = db.prepare('SELECT * FROM templates ORDER BY id').all();
+      const tpls = db.prepare('SELECT * FROM templates WHERE service_id=? ORDER BY id').all(sid);
       let done = 0;
       for (const t of tpls) {
         const full = getTemplateFull(t.id);
@@ -1926,6 +1940,28 @@ app.post('/api/admin/kb/import-templates', async (req, res) => {
 // ---------- AI 客服实例 ----------
 app.get('/api/admin/ai-services', (req, res) => {
   res.json(db.prepare('SELECT * FROM ai_services ORDER BY id').all());
+});
+app.post('/api/admin/ai-services', (req, res) => {
+  const { name, description } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: '名称必填' });
+  const r = db.prepare('INSERT INTO ai_services (name, description) VALUES (?,?)')
+    .run(String(name).trim(), String(description || ''));
+  res.json({ ok: true, id: r.lastInsertRowid });
+});
+app.delete('/api/admin/ai-services/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (id === 1) return res.status(400).json({ error: '默认客服不能删除' });
+  // 级联删除该员工的数据
+  db.prepare('DELETE FROM kb_chunks WHERE kb_id IN (SELECT id FROM knowledge_bases WHERE service_id=?)').run(id);
+  db.prepare('DELETE FROM kb_documents WHERE kb_id IN (SELECT id FROM knowledge_bases WHERE service_id=?)').run(id);
+  db.prepare('DELETE FROM knowledge_bases WHERE service_id=?').run(id);
+  db.prepare('DELETE FROM template_tags WHERE template_id IN (SELECT id FROM templates WHERE service_id=?)').run(id);
+  db.prepare('DELETE FROM template_vars WHERE template_id IN (SELECT id FROM templates WHERE service_id=?)').run(id);
+  db.prepare('DELETE FROM template_locales WHERE template_id IN (SELECT id FROM templates WHERE service_id=?)').run(id);
+  db.prepare('DELETE FROM templates WHERE service_id=?').run(id);
+  db.prepare('DELETE FROM tags WHERE service_id=?').run(id);
+  db.prepare('DELETE FROM ai_services WHERE id=?').run(id);
+  res.json({ ok: true });
 });
 app.put('/api/admin/ai-services/:id', (req, res) => {
   const { name, description, kb_ids, model_config_json, tone_config_json, is_active } = req.body || {};
