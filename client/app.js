@@ -1281,15 +1281,7 @@ async function adminMgmtBind() {
       </select>
       <select id="mm-sub" class="grow1"></select>
     </div>
-    <details style="margin-bottom:8px">
-      <summary style="font-size:13px;color:var(--muted);cursor:pointer">自定义供应商（留空用分类配置）</summary>
-      <div style="margin-top:8px">
-        <label class="fl">API Key</label>
-        <input id="mm-key" type="password" placeholder="留空则用分类供应商配置" autocomplete="off">
-        <label class="fl">Base URL</label>
-        <input id="mm-url" placeholder="留空则用分类供应商配置" autocomplete="off">
-      </div>
-    </details>
+    <div class="frm-hint" id="mm-pv-hint" style="margin-bottom:8px"></div>
     <button class="btn ghost frm-sec" id="mm-pull" style="width:100%">拉取可用模型</button>
     <div id="mm-pulled" style="margin-bottom:8px"></div>
     <label class="fl">模型 ID <span class="muted">（须与供应商一致）</span></label>
@@ -1318,7 +1310,20 @@ async function adminMgmtBind() {
     const subs = (cats[catSel.value] && cats[catSel.value].subs) || {};
     subSel.innerHTML = Object.entries(subs).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
   };
-  catSel.onchange = updSub; updSub();
+  const updPvHint = async () => {
+    try {
+      const d = await api('/api/admin/model-providers');
+      const pv = (d.providers || {})[catSel.value] || {};
+      const hint = document.getElementById('mm-pv-hint');
+      if (pv.base_url) {
+        hint.textContent = `当前分类供应商：${pv.provider_name || '未命名'}（${pv.base_url}）`;
+      } else {
+        hint.textContent = '该分类未配置供应商，请先在下方"分类供应商"配置';
+      }
+    } catch (e) {}
+  };
+  catSel.onchange = () => { updSub(); updPvHint(); };
+  updSub(); updPvHint();
 
   // 供应商配置
   const pvWrap = document.getElementById('mm-providers');
@@ -1395,11 +1400,9 @@ async function adminMgmtBind() {
   document.getElementById('mm-pull').onclick = async () => {
     const msg = document.getElementById('mm-msg');
     const cat = catSel.value;
-    const api_key = document.getElementById('mm-key').value.trim();
-    const base_url = document.getElementById('mm-url').value.trim();
     msg.textContent = '拉取中…';
     try {
-      const d = await api('/api/admin/models/pull', { method: 'POST', body: JSON.stringify({ category: cat, api_key, base_url }) });
+      const d = await api('/api/admin/models/pull', { method: 'POST', body: JSON.stringify({ category: cat }) });
       const box = document.getElementById('mm-pulled');
       box.innerHTML = `<select id="mm-picked" style="width:100%"><option value="">选择模型…</option>` +
         d.models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join('') + `</select>`;
@@ -1414,11 +1417,9 @@ async function adminMgmtBind() {
     const msg = document.getElementById('mm-msg');
     const model_id = document.getElementById('mm-model-id').value.trim();
     if (!model_id) return toast('请先填模型 ID');
-    const api_key = document.getElementById('mm-key').value.trim();
-    const base_url = document.getElementById('mm-url').value.trim();
     msg.textContent = '测试中…';
     try {
-      const d = await api('/api/admin/models/test', { method: 'POST', body: JSON.stringify({ model_id, category: catSel.value, api_key, base_url }) });
+      const d = await api('/api/admin/models/test', { method: 'POST', body: JSON.stringify({ model_id, category: catSel.value }) });
       msg.textContent = d.msg;
     } catch (e) { msg.textContent = e.message; }
   };
@@ -1430,8 +1431,6 @@ async function adminMgmtBind() {
       display_name: document.getElementById('mm-display').value.trim(),
       description: document.getElementById('mm-desc').value.trim(),
       category: catSel.value, subcategory: subSel.value,
-      api_key: document.getElementById('mm-key').value.trim(),
-      base_url: document.getElementById('mm-url').value.trim(),
       input_price: Number(document.getElementById('mm-in').value) || 0,
       output_price: Number(document.getElementById('mm-out').value) || 0,
     };
