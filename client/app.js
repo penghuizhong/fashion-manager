@@ -1033,11 +1033,11 @@ function adminModelHTML() {
 }
 // 用途 → 子分类映射
 const MODEL_ROLES = [
-  { key: 'chat_model', label: '对话模型', hint: '话术选择用', sub: 'chat', cat: '基础模型' },
-  { key: 'backend_model', label: '后台模型', hint: '关键词理解用，可选便宜快的', sub: 'backend', cat: '基础模型' },
-  { key: 'vision_model', label: '识图模型', hint: '看图理解用', sub: 'vision_understand', cat: '基础模型' },
-  { key: 'image_model', label: '生图模型', hint: '生成图片用', sub: 'image_gen', cat: '视觉模型' },
-  { key: 'embedding_model', label: '向量模型', hint: '文本向量化用', sub: 'embedding', cat: '向量模型' },
+  { key: 'chat_model', label: '对话模型', hint: '话术选择用', catKey: 'basic', cat: '基础模型' },
+  { key: 'backend_model', label: '后台模型', hint: '关键词理解用，可选便宜快的', catKey: 'basic', cat: '基础模型' },
+  { key: 'vision_model', label: '识图模型', hint: '看图理解用', catKey: 'basic', cat: '基础模型' },
+  { key: 'image_model', label: '生图模型', hint: '生成图片用', catKey: 'visual', cat: '视觉模型' },
+  { key: 'embedding_model', label: '向量模型', hint: '文本向量化用', catKey: 'embedding', cat: '向量模型' },
 ];
 async function adminLoadModels() {
   const box = document.getElementById('adm-roles');
@@ -1050,7 +1050,7 @@ async function adminLoadModels() {
     const models = Array.isArray(cat) ? cat : (cat.models || []);
     let lastCat = '';
     box.innerHTML = MODEL_ROLES.map((r) => {
-      const opts = models.filter((m) => m.subcategory === r.sub);
+      const opts = models.filter((m) => m.category === r.catKey);
       const cur = cfg[r.key] || '';
       const head = r.cat !== lastCat ? `<div class="frm-sec" style="font-weight:700;margin-top:4px">${r.cat}</div>` : '';
       lastCat = r.cat;
@@ -1245,18 +1245,15 @@ async function adminMgmtBind() {
   // 渲染分类 + 供应商配置 + 上架表单
   wrap.innerHTML = `
     <div class="frm-sec" style="font-weight:700">上架新模型</div>
-    <label class="fl">模型分类</label>
-    <div class="frm-row">
-      <select id="mm-cat" class="grow1">
-        ${catKeys.map((k) => `<option value="${k}">${cats[k].name}</option>`).join('')}
-      </select>
-      <select id="mm-sub" class="grow1"></select>
-    </div>
+    <label class="fl">模型 ID <span class="muted">（须与供应商一致）</span></label>
+    <input id="mm-model-id" placeholder="如 openai/gpt-7-mini" autocomplete="off">
+    <label class="fl">模型分类 <span class="muted">（点选，决定用哪家供应商）</span></label>
+    <select id="mm-cat">
+      ${catKeys.map((k) => `<option value="${k}">${cats[k].name}</option>`).join('')}
+    </select>
     <div class="frm-hint" id="mm-pv-hint" style="margin-bottom:8px"></div>
     <button class="btn ghost frm-sec" id="mm-pull" style="width:100%">拉取可用模型</button>
     <div id="mm-pulled" style="margin-bottom:8px"></div>
-    <label class="fl">模型 ID <span class="muted">（须与供应商一致）</span></label>
-    <input id="mm-model-id" placeholder="如 openai/gpt-7-mini" autocomplete="off">
     <label class="fl">显示名</label>
     <input id="mm-display" placeholder="留空则用模型 ID" autocomplete="off">
     <label class="fl">描述（可选）</label>
@@ -1276,11 +1273,6 @@ async function adminMgmtBind() {
     <div id="mm-list"><div class="empty">加载中…</div></div>`;
 
   const catSel = document.getElementById('mm-cat');
-  const subSel = document.getElementById('mm-sub');
-  const updSub = () => {
-    const subs = (cats[catSel.value] && cats[catSel.value].subs) || {};
-    subSel.innerHTML = Object.entries(subs).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
-  };
   const updPvHint = async () => {
     try {
       const d = await api('/api/admin/model-providers');
@@ -1293,8 +1285,8 @@ async function adminMgmtBind() {
       }
     } catch (e) {}
   };
-  catSel.onchange = () => { updSub(); updPvHint(); };
-  updSub(); updPvHint();
+  catSel.onchange = updPvHint;
+  updPvHint();
 
   // 供应商配置
   const pvWrap = document.getElementById('mm-providers');
@@ -1342,11 +1334,8 @@ async function adminMgmtBind() {
           ms.map((m) => `
           <div class="frm-row" style="align-items:center;font-size:13px">
             <span style="flex:1">${esc(m.display_name || m.model_id)}<br><span class="muted" style="font-size:11px">${esc(m.model_id)}</span></span>
-            <span class="muted" style="font-size:11px">${esc((cats[k].subs || {})[m.subcategory] || m.subcategory)}</span>
-            ${m.subcategory === 'chat' ? `<button class="btn ghost sm" data-set="chat_model|${esc(m.model_id)}">设为对话</button>` : ''}
-            ${m.subcategory === 'backend' ? `<button class="btn ghost sm" data-set="backend_model|${esc(m.model_id)}">设为后台</button>` : ''}
-            ${m.subcategory === 'vision_understand' ? `<button class="btn ghost sm" data-set="vision_model|${esc(m.model_id)}">设为识图</button>` : ''}
-            ${m.subcategory === 'embedding' ? `<button class="btn ghost sm" data-set="embedding_model|${esc(m.model_id)}">设为向量</button>` : ''}
+            <span class="muted" style="font-size:11px">${m.input_price}/${m.output_price}/1M</span>
+            <button class="btn ghost sm" data-price="${m.id}" data-in="${m.input_price}" data-out="${m.output_price}">更改价格</button>
             <button class="btn ghost sm" data-del="${m.id}">下架</button>
           </div>`).join('');
       }).join('') || '<div class="empty">暂无上架模型</div>';
@@ -1357,11 +1346,20 @@ async function adminMgmtBind() {
           loadModels();
         };
       });
-      listEl.querySelectorAll('[data-set]').forEach((b) => {
+      listEl.querySelectorAll('[data-price]').forEach((b) => {
         b.onclick = async () => {
-          const [key, val] = b.dataset.set.split('|');
-          await api('/api/admin/config', { method: 'PUT', body: JSON.stringify({ [key]: val }) });
-          toast(`已设为当前${key === 'chat_model' ? '对话' : key === 'backend_model' ? '后台' : key === 'vision_model' ? '识图' : '向量'}模型`);
+          const inp = prompt('输入单价 /1M（美元）', b.dataset.in || '0');
+          if (inp === null) return;
+          const out = prompt('输出单价 /1M（美元）', b.dataset.out || '0');
+          if (out === null) return;
+          try {
+            await api(`/api/admin/models/${b.dataset.price}`, {
+              method: 'PUT',
+              body: JSON.stringify({ input_price: Number(inp) || 0, output_price: Number(out) || 0 }),
+            });
+            toast('价格已更新');
+            loadModels();
+          } catch (e) { toast(e.message); }
         };
       });
     } catch (e) { listEl.innerHTML = '<div class="empty">加载失败</div>'; }
@@ -1401,7 +1399,7 @@ async function adminMgmtBind() {
       model_id: document.getElementById('mm-model-id').value.trim(),
       display_name: document.getElementById('mm-display').value.trim(),
       description: document.getElementById('mm-desc').value.trim(),
-      category: catSel.value, subcategory: subSel.value,
+      category: catSel.value, subcategory: '',
       input_price: Number(document.getElementById('mm-in').value) || 0,
       output_price: Number(document.getElementById('mm-out').value) || 0,
     };
