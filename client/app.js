@@ -1267,22 +1267,25 @@ async function adminMgmtBind() {
   // 渲染分类 + 供应商配置 + 上架表单
   wrap.innerHTML = `
     <div class="frm-sec" style="font-weight:700">上架新模型</div>
-    <label class="fl">模型 ID <span class="muted">（须与 OpenRouter 一致）</span></label>
-    <div class="frm-row">
-      <input id="mm-model-id" class="grow2" placeholder="如 openai/gpt-7-mini" autocomplete="off">
-      <button class="btn ghost" id="mm-pull">拉取可用模型</button>
-    </div>
-    <div id="mm-pulled" style="margin-bottom:8px"></div>
-    <label class="fl">显示名</label>
-    <input id="mm-display" placeholder="留空则用模型 ID" autocomplete="off">
-    <label class="fl">描述（可选）</label>
-    <input id="mm-desc" placeholder="如：快速便宜，日常聊天首选" autocomplete="off">
+    <label class="fl">模型分类</label>
     <div class="frm-row">
       <select id="mm-cat" class="grow1">
         ${catKeys.map((k) => `<option value="${k}">${cats[k].name}</option>`).join('')}
       </select>
       <select id="mm-sub" class="grow1"></select>
     </div>
+    <label class="fl">API Key <span class="muted">（留空用分类供应商的）</span></label>
+    <input id="mm-key" type="password" placeholder="留空则用分类供应商配置" autocomplete="off">
+    <label class="fl">Base URL <span class="muted">（留空用分类供应商的）</span></label>
+    <input id="mm-url" placeholder="留空则用分类供应商配置" autocomplete="off">
+    <button class="btn ghost frm-sec" id="mm-pull" style="width:100%">拉取可用模型</button>
+    <div id="mm-pulled" style="margin-bottom:8px"></div>
+    <label class="fl">模型 ID <span class="muted">（须与供应商一致）</span></label>
+    <input id="mm-model-id" placeholder="如 openai/gpt-7-mini" autocomplete="off">
+    <label class="fl">显示名</label>
+    <input id="mm-display" placeholder="留空则用模型 ID" autocomplete="off">
+    <label class="fl">描述（可选）</label>
+    <input id="mm-desc" placeholder="如：快速便宜，日常聊天首选" autocomplete="off">
     <div class="frm-row">
       <input id="mm-in" type="number" step="0.0001" min="0" placeholder="输入单价 /1M" class="grow1">
       <input id="mm-out" type="number" step="0.0001" min="0" placeholder="输出单价 /1M" class="grow1">
@@ -1369,9 +1372,11 @@ async function adminMgmtBind() {
   document.getElementById('mm-pull').onclick = async () => {
     const msg = document.getElementById('mm-msg');
     const cat = catSel.value;
+    const api_key = document.getElementById('mm-key').value.trim();
+    const base_url = document.getElementById('mm-url').value.trim();
     msg.textContent = '拉取中…';
     try {
-      const d = await api('/api/admin/models/pull', { method: 'POST', body: JSON.stringify({ category: cat }) });
+      const d = await api('/api/admin/models/pull', { method: 'POST', body: JSON.stringify({ category: cat, api_key, base_url }) });
       const box = document.getElementById('mm-pulled');
       box.innerHTML = `<select id="mm-picked" style="width:100%"><option value="">选择模型…</option>` +
         d.models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join('') + `</select>`;
@@ -1386,9 +1391,11 @@ async function adminMgmtBind() {
     const msg = document.getElementById('mm-msg');
     const model_id = document.getElementById('mm-model-id').value.trim();
     if (!model_id) return toast('请先填模型 ID');
+    const api_key = document.getElementById('mm-key').value.trim();
+    const base_url = document.getElementById('mm-url').value.trim();
     msg.textContent = '测试中…';
     try {
-      const d = await api('/api/admin/models/test', { method: 'POST', body: JSON.stringify({ model_id, category: catSel.value }) });
+      const d = await api('/api/admin/models/test', { method: 'POST', body: JSON.stringify({ model_id, category: catSel.value, api_key, base_url }) });
       msg.textContent = d.msg;
     } catch (e) { msg.textContent = e.message; }
   };
@@ -1400,6 +1407,8 @@ async function adminMgmtBind() {
       display_name: document.getElementById('mm-display').value.trim(),
       description: document.getElementById('mm-desc').value.trim(),
       category: catSel.value, subcategory: subSel.value,
+      api_key: document.getElementById('mm-key').value.trim(),
+      base_url: document.getElementById('mm-url').value.trim(),
       input_price: Number(document.getElementById('mm-in').value) || 0,
       output_price: Number(document.getElementById('mm-out').value) || 0,
     };
