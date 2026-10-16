@@ -930,6 +930,9 @@ async function viewAi() {
         <svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
       </button>
       <span class="chat-title">${esc(emp.name)}</span>
+      <button class="btn ghost sm chat-clear" id="chat-clear" aria-label="清空聊天记录" title="清空聊天记录">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-9 0l1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>
+      </button>
       <button class="btn ghost sm chat-cfg" id="chat-config">配置</button>
     </div>
     <div class="chat-body" id="chat-body">
@@ -955,6 +958,20 @@ async function viewAi() {
     </div>
   </div>`;
   document.getElementById('chat-config').onclick = () => openEmpModal(curEmpId);
+  document.getElementById('chat-clear').onclick = () => {
+    Modal.confirm({
+      title: '清空聊天记录',
+      body: `确定清空「${esc(emp.name)}」的全部聊天记录吗？不可恢复。`,
+      okText: '清空',
+      onOk: async () => {
+        try {
+          await api(`/api/ai/chat/history?service_id=${curEmpId}`, { method: 'DELETE' });
+          inner.innerHTML = `<div class="chat-empty" id="chat-empty"><h2>有什么可以帮你？</h2><div>粘贴买家消息，我来选话术；也可以发图片让我分析款式。</div></div>`;
+          toast('已清空');
+        } catch (e) { toast(e.message); }
+      }
+    });
+  };
   document.getElementById('chat-menu').onclick = () => document.getElementById('app-root').classList.add('sidebar-open');
   const body = document.getElementById('chat-body');
   const inner = document.getElementById('chat-inner');
@@ -962,12 +979,13 @@ async function viewAi() {
   const sendBtn = document.getElementById('chat-send');
   const imgInput = document.getElementById('chat-img');
   const emptyEl = () => document.getElementById('chat-empty');
+  let lastKbHits = []; // 最近一次话术检索的知识库引用，随选中的话术一起存档
 
   const scrollBottom = () => { body.scrollTop = body.scrollHeight; };
   const hideEmpty = () => { const e = emptyEl(); if (e) e.remove(); };
   // 加载该员工独立聊天记录
-  const saveMsg = (role, content) => {
-    api('/api/ai/chat/messages', { method: 'POST', body: JSON.stringify({ service_id: curEmpId, role, content }) }).catch(() => {});
+  const saveMsg = (role, content, meta) => {
+    api('/api/ai/chat/messages', { method: 'POST', body: JSON.stringify({ service_id: curEmpId, role, content, meta: meta || {} }) }).catch(() => {});
   };
   (async () => {
     try {
@@ -976,12 +994,21 @@ async function viewAi() {
         hideEmpty();
         hist.forEach((m) => {
           const d = document.createElement('div');
+          let meta = {};
+          try { meta = JSON.parse(m.meta_json || '{}'); } catch (e) {}
           if (m.role === 'user') {
             d.className = 'cmsg user';
-            d.innerHTML = `<div class="ububble">${esc(m.content)}</div>`;
+            d.innerHTML = (meta.kind === 'image' && meta.path)
+              ? `<img class="cmsg-img" src="${esc(meta.path)}">`
+              : `<div class="ububble">${esc(m.content)}</div>`;
           } else {
             d.className = 'cmsg ai';
-            d.innerHTML = `<div class="atext"><p>${esc(m.content).replace(/\n/g, '<br>')}</p></div>`;
+            let refs = '';
+            const refParts = [];
+            if (meta.template_key) refParts.push(`话术 ${esc(meta.template_key)}`);
+            if (meta.kb_hits && meta.kb_hits.length) refParts.push(`知识库 ${meta.kb_hits.map((h) => esc(h.kb_name || '')).filter(Boolean).join('、')}`);
+            if (refParts.length) refs = `<div class="cref">引用：${refParts.join(' · ')}</div>`;
+            d.innerHTML = `<div class="atext"><p>${esc(m.content).replace(/\n/g, '<br>')}</p>${refs}</div>`;
           }
           inner.appendChild(d);
         });
@@ -1044,8 +1071,9 @@ async function viewAi() {
         addAi('没找到匹配的话术，换个说法试试。');
       }
       if (d.kb_hits && d.kb_hits.length) {
+        lastKbHits = d.kb_hits;
         addAi(`<div style="font-size:13px;color:var(--muted)">知识库参考：<br>${d.kb_hits.map((h) => `· ${esc(h.kb_name)}：${esc(h.text.slice(0, 120))}…`).join('<br>')}</div>`);
-      }
+      } else { lastKbHits = []; }
     } catch (e) {
       typing.remove();
       addAi(`出错了：${esc(e.message)}`);
@@ -1060,7 +1088,11 @@ async function viewAi() {
       typing.remove();
       const html = esc(r.text || '生成失败').replace(/\n/g, '<br>');
       addAi(`<p>${html}</p>`);
-      saveMsg('ai', r.text || '生成失败');
+      saveMsg('ai', r.text || '生成失败', {
+        template_key: r.template_key || '',
+        kb_hits: (lastKbHits || []).map((h) => ({ kb_name: h.kb_name || '', text: String(h.text || '').slice(0, 120) })),
+      });
+      lastKbHits = [];
       if (r.copy_blocked) addAi('<div style="font-size:13px;color:var(--muted)">该回复被护栏拦截，请检查后手动处理。</div>');
     } catch (e) {
       typing.remove();
@@ -1076,6 +1108,10 @@ async function viewAi() {
     reader.onload = async (e) => {
       const dataUrl = e.target.result;
       addUser(`<img class="cmsg-img" src="${dataUrl}">`);
+      // v0.15.1：图片存 uploads，聊天记录里只存路径（重开聊天可回看）
+      api('/api/ai/chat/image', { method: 'POST', body: JSON.stringify({ service_id: curEmpId, dataUrl }) })
+        .then((up) => saveMsg('user', '[图片]', { kind: 'image', path: up.path || '' }))
+        .catch(() => saveMsg('user', '[图片]', { kind: 'image', path: '' }));
       const typing = addTyping();
       try {
         const d = await api('/api/ai/vision', {
@@ -1804,6 +1840,13 @@ async function loadEmps() {
     });
   } catch (e) { box.innerHTML = ''; }
 }
+/* 重命名后同步聊天页标题（v0.15.1） */
+function syncChatTitle(empId, name) {
+  if (curEmpId === empId) {
+    const ct = document.querySelector('.chat-title');
+    if (ct) ct.textContent = name;
+  }
+}
 /* 员工 ⋮ 操作面板：重命名 / 置顶 / 删除 */
 function openEmpMenu(e) {
   const pinned = Number(e.pinned) > 0;
@@ -1860,7 +1903,7 @@ function openEmpRename(e) {
     if (!name) return toast('请填写名称');
     try {
       await api(`/api/admin/ai-services/${e.id}`, { method: 'PUT', body: JSON.stringify({ name }) });
-      Modal.close(); toast('已重命名'); loadEmps();
+      Modal.close(); toast('已重命名'); syncChatTitle(e.id, name); loadEmps();
     } catch (err) { toast(err.message); }
   };
 }
@@ -2102,26 +2145,22 @@ async function empBasicBind() {
       <label class="fl"><input type="checkbox" id="empb-active" ${svc.is_active ? 'checked' : ''} style="width:auto"> 启用</label>
       <div class="frm-row" style="margin-top:12px">
         <button class="btn grow1" id="empb-save">保存</button>
-        ${svc.id !== 1 ? '<button class="btn ghost" id="empb-del">删除员工</button>' : ''}
       </div>
       <div class="miss" id="empb-msg"></div>`;
     document.getElementById('empb-save').onclick = async () => {
+      const newName = document.getElementById('empb-name').value.trim();
+      if (!newName) { document.getElementById('empb-msg').textContent = '请填写名称'; return; }
       try {
         await api(`/api/admin/ai-services/${svc.id}`, { method: 'PUT', body: JSON.stringify({
-          name: document.getElementById('empb-name').value.trim(),
+          name: newName,
           description: document.getElementById('empb-desc').value.trim(),
           is_active: document.getElementById('empb-active').checked,
         })});
         document.getElementById('empb-msg').textContent = '已保存';
+        Modal.setTitle(`${newName} - 配置`);
+        syncChatTitle(svc.id, newName);
         loadEmps();
       } catch (e) { document.getElementById('empb-msg').textContent = e.message; }
-    };
-    const del = document.getElementById('empb-del');
-    if (del) del.onclick = () => {
-      Modal.confirm({ title: '删除员工', body: `确定删除「${esc(svc.name)}」及其全部标签、模板、知识库吗？`, okText: '删除', onOk: async () => {
-        await api(`/api/admin/ai-services/${svc.id}`, { method: 'DELETE' });
-        Modal.close(); loadEmps(); toast('已删除');
-      }});
     };
   } catch (e) { box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
 }
