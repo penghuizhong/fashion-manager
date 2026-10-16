@@ -53,7 +53,7 @@ function getServiceId(req) {
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.12.0',
+  version: '0.13.0',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1317,6 +1317,44 @@ app.post('/api/ai/assist', aiRateLimit, aiMsgCheck, async (req, res) => {
     ok: true, options, message,
     kb_hits: kbHits.map((h) => ({ kb_name: h.kb_name, text: h.chunk_text.slice(0, 300), score: Number(h.score.toFixed(3)) })),
   });
+});
+
+// 识图：分析上传的图片
+app.post('/api/ai/vision', aiRateLimit, async (req, res) => {
+  const { image } = req.body || {};
+  if (!image) return res.status(400).json({ error: '缺少图片' });
+  const serviceId = getServiceId(req);
+  const cfg = getAIConfig();
+  // 取该员工的识图模型
+  const svc = db.prepare('SELECT * FROM ai_services WHERE id=?').get(serviceId);
+  const mcfg = svc ? JSON.parse(svc.model_config_json || '{}') : {};
+  const model = mcfg.vision_model || cfg.vision_model || cfg.chat_model;
+  if (!model) return res.status(400).json({ error: '未配置识图模型' });
+  if (!cfg.api_key) return res.status(400).json({ error: '未配置 API Key' });
+  try {
+    const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
+      body: JSON.stringify({
+        model,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: '请分析这张图片，描述其中的服装款式、颜色、细节特征。用中文回答，简洁。' },
+            { type: 'image_url', image_url: { url: image } },
+          ],
+        }],
+        max_tokens: 500,
+      }),
+      signal: AbortSignal.timeout(60000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((d.error && d.error.message) || `识图失败 ${r.status}`);
+    const text = d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content || '';
+    if (d.usage) logUsage(model, 'vision', d.usage.prompt_tokens || 0, d.usage.completion_tokens || 0);
+    res.json({ ok: true, text: text.trim() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // 选中某条候选后：抽 slot + 护栏 + 渲染
