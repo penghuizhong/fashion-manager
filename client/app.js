@@ -1047,7 +1047,7 @@ async function adminLoadModels() {
       api('/api/admin/models/catalog'),
       api('/api/admin/config').catch(() => ({})),
     ]);
-    const models = cat.models || [];
+    const models = Array.isArray(cat) ? cat : (cat.models || []);
     let lastCat = '';
     box.innerHTML = MODEL_ROLES.map((r) => {
       const opts = models.filter((m) => m.subcategory === r.sub);
