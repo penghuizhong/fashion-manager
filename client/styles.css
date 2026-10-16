@@ -215,6 +215,14 @@ label.fl{display:block;font-size:12px;color:var(--muted);margin:10px 0 5px}
 .seg{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
 .seg .chip.dash{border-style:dashed;opacity:.55}
 .stickybar{position:sticky;bottom:0;background:var(--bg);padding:8px 0 calc(12px + env(safe-area-inset-bottom));z-index:5}
+/* 小菜单式弹窗（第二套弹窗逻辑）：锚定在按钮旁的小菜单 */
+.pop-menu{position:fixed;z-index:70;min-width:160px;background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.18);padding:6px;animation:pop-in .12s ease-out}
+.pop-item{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;border:0;background:none;
+  color:var(--text);font-size:14px;border-radius:8px;cursor:pointer;text-align:left}
+.pop-item:active{background:var(--surface2)}
+.pop-item.danger{color:var(--danger)}
+@keyframes pop-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
 .miss{color:var(--danger);font-size:12px;text-align:center;min-height:17px;margin-bottom:6px;font-weight:700}
 .lockbar{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);
   background:var(--surface2);border-radius:8px;padding:8px 10px;margin-top:8px}
