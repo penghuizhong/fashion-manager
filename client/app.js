@@ -1048,6 +1048,25 @@ async function viewAi() {
     inner.appendChild(d); scrollBottom();
     return d;
   };
+  // 流式 AI 气泡：先占位，token 到了逐字追加显示
+  const streamAi = () => {
+    hideEmpty();
+    const d = document.createElement('div');
+    d.className = 'cmsg ai';
+    d.innerHTML = '<div class="atext"><p></p></div>';
+    inner.appendChild(d); scrollBottom();
+    const p = d.querySelector('p');
+    let raw = '';
+    return {
+      append: (tok) => { raw += tok; p.innerHTML = esc(raw).replace(/\n/g, '<br>'); scrollBottom(); },
+      finish: () => { scrollBottom(); },
+      error: (msg) => {
+        if (raw) p.innerHTML = esc(raw).replace(/\n/g, '<br>');
+        p.innerHTML += `<br><span class="miss">出错了：${esc(msg)}</span>`;
+        scrollBottom();
+      },
+    };
+  };
   const updSend = () => { sendBtn.disabled = !input.value.trim(); };
 
   const sendText = async () => {
@@ -1058,14 +1077,38 @@ async function viewAi() {
     // v0.16.0：话术检索开关开 → 老链路；关 → 简单对话（soul+memory）
     const cur = empList.find((e) => e.id === curEmpId) || emp;
     if (cur.tpl_retrieval) { saveMsg('user', message); return sendTextLegacy(message); }
-    const typing = addTyping();
+    // v0.16.1 流式：先占位气泡，token 到了逐字显示，首字不再等整段生成
+    const st = streamAi();
     try {
-      const d = await api('/api/ai/chat', { method: 'POST', body: JSON.stringify({ service_id: curEmpId, message }) });
-      typing.remove();
-      addAi(`<p>${esc((d.text || '').trim() || '（空回复）').replace(/\n/g, '<br>')}</p>`);
+      const r = await fetch('/api/ai/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ service_id: curEmpId, message }),
+      });
+      if (!r.ok) throw new Error(`请求失败 ${r.status}`);
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '', gotToken = false;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split('\n');
+        buf = lines.pop();
+        for (const line of lines) {
+          const t = line.trim();
+          if (!t.startsWith('data:')) continue;
+          const data = t.slice(5).trim();
+          if (!data) continue;
+          let o = null;
+          try { o = JSON.parse(data); } catch (e) { continue; }
+          if (o.token) { gotToken = true; st.append(o.token); }
+          else if (o.error) throw new Error(o.error);
+          else if (o.done) st.finish();
+        }
+      }
+      if (!gotToken) st.error('空回复');
     } catch (e) {
-      typing.remove();
-      addAi(`出错了：${esc(e.message)}`);
+      st.error(e.message);
     }
   };
   // 话术检索链路（老链路，开关开启时用）
@@ -1173,42 +1216,17 @@ async function viewAi() {
 
 
 /* ---------------- 管理设置弹窗（全局 Modal + 横向滑动二级导航） ---------------- */
-let adminTab = 'model';
+let adminTab = 'mgmt';
 function openAdminModal() {
-  adminTab = 'model';
+  adminTab = 'mgmt';
   Modal.open({ title: '管理设置', body: adminBodyHTML() });
   bindAdmin();
 }
 function adminBodyHTML() {
   return `<div class="admin-tabs">
-    <button class="atab ${adminTab === 'model' ? 'on' : ''}" data-atab="model">模型服务</button>
-    <button class="atab ${adminTab === 'price' ? 'on' : ''}" data-atab="price">模型价格</button>
     <button class="atab ${adminTab === 'mgmt' ? 'on' : ''}" data-atab="mgmt">模型管理</button>
     <button class="atab ${adminTab === 'stats' ? 'on' : ''}" data-atab="stats">统计</button>
-  </div><div id="admin-pane">${adminTab === 'model' ? adminModelHTML() : adminTab === 'price' ? adminPriceHTML() : adminTab === 'mgmt' ? '<div class="admin-mgmt"><div class="empty">加载中…</div></div>' : adminTab === 'stats' ? '<div class="admin-stats"><div class="empty">加载中…</div></div>' : ''}</div>`;
-}
-function adminPriceHTML() {
-  return `<div class="admin-price">
-    <div class="frm-sec" style="font-weight:700">模型价格（USD / 1K tokens）</div>
-    <div class="frm-hint">价格与实际调用数据关联，用量看板自动算成本</div>
-    <div id="aprice-list"><div class="empty">加载中…</div></div>
-    <div class="frm-row" style="margin-top:8px">
-      <input id="aprice-model" placeholder="模型ID" class="grow2">
-      <input id="aprice-in" type="number" step="0.0001" min="0" placeholder="输入价" style="width:80px">
-      <input id="aprice-out" type="number" step="0.0001" min="0" placeholder="输出价" style="width:80px">
-      <button class="btn sm" id="aprice-add">添加</button>
-    </div>
-    <div class="frm-sec" style="font-weight:700;margin-top:12px">用量看板</div>
-    <div id="aprice-usage"><div class="empty">加载中…</div></div>
-  </div>`;
-}
-function adminModelHTML() {
-  return `<div id="admin-model-form">
-    <div class="frm-hint" style="margin-bottom:8px">从「模型管理」上架的模型中选择各用途使用的模型。<br>供应商配置请到「模型管理」→ 分类供应商。</div>
-    <div id="adm-roles"><div class="empty">加载中…</div></div>
-    <button class="btn frm-sec" id="adm-save">保存</button>
-    <div class="miss" id="adm-msg"></div>
-  </div>`;
+  </div><div id="admin-pane">${adminTab === 'mgmt' ? '<div class="admin-mgmt"><div class="empty">加载中…</div></div>' : adminTab === 'stats' ? '<div class="admin-stats"><div class="empty">加载中…</div></div>' : ''}</div>`;
 }
 // 用途 → 子分类映射
 const MODEL_ROLES = [
@@ -1218,32 +1236,6 @@ const MODEL_ROLES = [
   { key: 'image_model', label: '生图模型', hint: '生成图片用', catKey: 'visual', cat: '视觉模型' },
   { key: 'embedding_model', label: '向量模型', hint: '文本向量化用', catKey: 'embedding', cat: '向量模型' },
 ];
-async function adminLoadModels() {
-  const box = document.getElementById('adm-roles');
-  if (!box) return;
-  try {
-    const [cat, cfg] = await Promise.all([
-      api('/api/admin/models/catalog'),
-      api('/api/admin/config').catch(() => ({})),
-    ]);
-    const models = Array.isArray(cat) ? cat : (cat.models || []);
-    let lastCat = '';
-    box.innerHTML = MODEL_ROLES.map((r) => {
-      const opts = models.filter((m) => m.category === r.catKey);
-      const cur = cfg[r.key] || '';
-      const head = r.cat !== lastCat ? `<div class="frm-sec" style="font-weight:700;margin-top:4px">${r.cat}</div>` : '';
-      lastCat = r.cat;
-      return `${head}
-        <label class="fl">${r.label} <span class="muted">（${r.hint}）</span></label>
-        <select id="adm-${r.key}" ${opts.length ? '' : 'disabled'}>
-          <option value="">${opts.length ? '不指定' : '该分类暂无上架模型'}</option>
-          ${opts.map((m) => `<option value="${esc(m.model_id)}" ${m.model_id === cur ? 'selected' : ''}>${esc(m.display_name || m.model_id)}</option>`).join('')}
-        </select>`;
-    }).join('');
-  } catch (e) {
-    box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;
-  }
-}
 
 function adminTagsHTML() {
   return `<div id="admin-tags">
@@ -1352,58 +1344,6 @@ async function adminTplBind() {
   await load();
 }
 /* 任务26b: 模型价格 + 用量看板 */
-async function adminPriceBind() {
-  const body = document.querySelector('#m-body .admin-price');
-  if (!body) return;
-  const listEl = document.getElementById('aprice-list');
-  const usageEl = document.getElementById('aprice-usage');
-  const loadPrices = async () => {
-    try {
-      const prices = await api('/api/admin/model-prices');
-      listEl.innerHTML = prices.map((pr) => `
-        <div class="frm-row" style="align-items:center">
-          <span style="flex:1;font-size:13px">${esc(pr.model_id)}</span>
-          <input type="number" step="0.0001" min="0" data-pid="${esc(pr.model_id)}" data-field="input_price"
-            value="${pr.input_price}" style="width:90px" placeholder="输入$/1K">
-          <input type="number" step="0.0001" min="0" data-pid="${esc(pr.model_id)}" data-field="output_price"
-            value="${pr.output_price}" style="width:90px" placeholder="输出$/1K">
-        </div>`).join('') || '<div class="empty">暂无价格，点击下方添加</div>';
-    } catch (e) { listEl.innerHTML = `<div class="empty">加载失败</div>`; }
-  };
-  const loadUsage = async () => {
-    try {
-      const u = await api('/api/admin/usage?days=30');
-      usageEl.innerHTML = `
-        <div class="frm-sec">近30天：${u.total.calls || 0} 次调用，$${Number(u.total.cost || 0).toFixed(4)}</div>` +
-        (u.by_model || []).map((r) => `
-        <div class="frm-row" style="font-size:13px">
-          <span style="flex:1">${esc(r.model)}</span>
-          <span class="muted">${r.calls}次 / $${Number(r.cost).toFixed(4)}</span>
-        </div>`).join('');
-    } catch (e) { usageEl.innerHTML = '<div class="empty">加载失败</div>'; }
-  };
-  document.getElementById('aprice-add').onclick = async () => {
-    const mid = document.getElementById('aprice-model').value.trim();
-    const inp = Number(document.getElementById('aprice-in').value) || 0;
-    const out = Number(document.getElementById('aprice-out').value) || 0;
-    if (!mid) return toast('请填模型ID');
-    await api('/api/admin/model-prices', { method: 'PUT', body: JSON.stringify({ model_id: mid, input_price: inp, output_price: out }) });
-    toast('已保存');
-    loadPrices();
-  };
-  // 价格输入框失焦自动保存
-  listEl.onchange = async (e) => {
-    const el = e.target;
-    if (!el.dataset.pid) return;
-    const pid = el.dataset.pid;
-    const row = listEl.querySelectorAll(`[data-pid="${CSS.escape(pid)}"]`);
-    const inp = listEl.querySelector(`[data-pid="${CSS.escape(pid)}"][data-field="input_price"]`).value;
-    const out = listEl.querySelector(`[data-pid="${CSS.escape(pid)}"][data-field="output_price"]`).value;
-    await api('/api/admin/model-prices', { method: 'PUT', body: JSON.stringify({ model_id: pid, input_price: Number(inp) || 0, output_price: Number(out) || 0 }) });
-  };
-  await loadPrices();
-  await loadUsage();
-}
 /* 模型管理 tab */
 async function adminMgmtBind() {
   const wrap = document.querySelector('#m-body .admin-mgmt');
@@ -1513,7 +1453,7 @@ async function adminMgmtBind() {
           ms.map((m) => `
           <div class="frm-row" style="align-items:center;font-size:13px">
             <span style="flex:1">${esc(m.display_name || m.model_id)}<br><span class="muted" style="font-size:11px">${esc(m.model_id)}</span></span>
-            <span class="muted" style="font-size:11px">${m.input_price}/${m.output_price}/1M</span>
+            <span class="muted" style="font-size:11px">¥${m.input_price}/¥${m.output_price}/1M</span>
             <button class="btn ghost sm" data-price="${m.id}" data-in="${m.input_price}" data-out="${m.output_price}">更改价格</button>
             <button class="btn ghost sm" data-del="${m.id}">下架</button>
           </div>`).join('');
@@ -1527,19 +1467,37 @@ async function adminMgmtBind() {
         };
       });
       listEl.querySelectorAll('[data-price]').forEach((b) => {
-        b.onclick = async () => {
-          const inp = prompt('输入单价 /1M（美元）', b.dataset.in || '0');
-          if (inp === null) return;
-          const out = prompt('输出单价 /1M（美元）', b.dataset.out || '0');
-          if (out === null) return;
-          try {
-            await api(`/api/admin/models/${b.dataset.price}`, {
-              method: 'PUT',
-              body: JSON.stringify({ input_price: Number(inp) || 0, output_price: Number(out) || 0 }),
-            });
-            toast('价格已更新');
-            loadModels();
-          } catch (e) { toast(e.message); }
+        b.onclick = () => {
+          const mid = b.dataset.price;
+          Modal.open({ title: '更改价格', body: `
+            <div class="frm-hint">人民币 / 1M tokens</div>
+            <label class="fl">输入单价</label>
+            <input id="mprice-in" type="number" step="0.0001" min="0" value="${esc(b.dataset.in || '0')}">
+            <label class="fl">输出单价</label>
+            <input id="mprice-out" type="number" step="0.0001" min="0" value="${esc(b.dataset.out || '0')}">
+            <div class="modal-foot">
+              <button class="btn ghost" id="mprice-cancel">取消</button>
+              <button class="btn" id="mprice-ok">保存</button>
+            </div>` });
+          const backToMgmt = () => {
+            adminTab = 'mgmt';
+            Modal.open({ title: '管理设置', body: adminBodyHTML() });
+            bindAdmin();
+          };
+          document.getElementById('mprice-cancel').onclick = () => backToMgmt();
+          document.getElementById('mprice-ok').onclick = async () => {
+            try {
+              await api(`/api/admin/models/${mid}`, {
+                method: 'PUT',
+                body: JSON.stringify({
+                  input_price: Number(document.getElementById('mprice-in').value) || 0,
+                  output_price: Number(document.getElementById('mprice-out').value) || 0,
+                }),
+              });
+              toast('价格已更新');
+            } catch (e) { toast(e.message); }
+            backToMgmt();
+          };
         };
       });
     } catch (e) { listEl.innerHTML = '<div class="empty">加载失败</div>'; }
@@ -1606,10 +1564,11 @@ async function adminStatsBind() {
     const maxCalls = Math.max(...(d.by_model || []).map((m) => m.calls), 1);
     const epName = { llmUnderstand: '理解', top3ranking: '排序', slotExtract: '抽槽', faithfulness: '二检' };
     wrap.innerHTML = `
-      <div class="frm-sec" style="font-weight:700">近30天总览：${d.total.calls} 次调用，$${Number(d.total.cost).toFixed(4)}</div>
+      <div class="frm-sec" style="font-weight:700">近30天总览：${d.total.calls} 次调用，¥${Number(d.total.cost).toFixed(4)}</div>
+      <div class="muted" style="font-size:11px;margin:-2px 0 6px 2px">输入 ¥${Number(d.total.cost_in || 0).toFixed(4)} · 输出 ¥${Number(d.total.cost_out || 0).toFixed(4)}</div>
       ${Object.entries(d.categories || {}).map(([k, v]) => {
         const c = (d.by_category || {})[k] || { calls: 0, cost: 0 };
-        return `<div class="frm-row" style="font-size:13px"><span style="flex:1;font-weight:700">${v.name}</span><span class="muted">${c.calls}次 / $${Number(c.cost).toFixed(4)}</span></div>`;
+        return `<div class="frm-row" style="font-size:13px"><span style="flex:1;font-weight:700">${v.name}</span><span class="muted">${c.calls}次 / ¥${Number(c.cost).toFixed(4)}</span></div>`;
       }).join('')}
       <div class="frm-sec" style="font-weight:700;margin-top:12px">模型分布</div>
       ${(d.by_model || []).map((m) => {
@@ -1619,12 +1578,12 @@ async function adminStatsBind() {
         return `<div style="margin-bottom:10px">
           <div class="frm-row" style="font-size:13px;align-items:center">
             <span style="flex:1">${esc(short)}</span>
-            <span class="muted" style="font-size:12px">${m.calls}次 · $${Number(m.cost).toFixed(4)}</span>
+            <span class="muted" style="font-size:12px">${m.calls}次 · ¥${Number(m.cost).toFixed(4)}</span>
           </div>
           <div style="height:6px;background:var(--surface2);border-radius:3px;margin:4px 0">
             <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:3px"></div>
           </div>
-          <div class="muted" style="font-size:11px">${(m.by_endpoint || []).map((e) => `${epName[e.endpoint] || e.endpoint} ${e.calls}次`).join('　')}</div>
+          <div class="muted" style="font-size:11px">输入 ¥${Number(m.cost_in || 0).toFixed(4)} · 输出 ¥${Number(m.cost_out || 0).toFixed(4)}　${(m.by_endpoint || []).map((e) => `${epName[e.endpoint] || e.endpoint} ${e.calls}次`).join('　')}</div>
         </div>`;
       }).join('') || '<div class="empty">暂无数据</div>'}
       <div class="frm-sec" style="font-weight:700;margin-top:12px">知识库命中（近30天）</div>
@@ -1639,26 +1598,8 @@ async function bindAdmin() {
   document.querySelectorAll('#m-body [data-atab]').forEach((b) => {
     b.onclick = () => { adminTab = b.dataset.atab; Modal.setBody(adminBodyHTML()); bindAdmin(); };
   });
-  if (adminTab !== 'model') {
-    if (adminTab === 'price') { adminPriceBind(); return; }
-    if (adminTab === 'mgmt') { adminMgmtBind(); return; }
-    if (adminTab === 'stats') { adminStatsBind(); return; }
-    return;
-  }
-  await adminLoadModels();
-  const save = document.getElementById('adm-save');
-  if (save) save.onclick = async () => {
-    const gv = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
-    const msg = document.getElementById('adm-msg');
-    save.disabled = true;
-    try {
-      const body = {};
-      MODEL_ROLES.forEach((r) => { body[r.key] = gv(`adm-${r.key}`); });
-      await api('/api/admin/config', { method: 'PUT', body: JSON.stringify(body) });
-      msg.style.color = 'var(--success)'; msg.textContent = '已保存';
-    } catch (e) { msg.style.color = ''; msg.textContent = e.message; }
-    finally { save.disabled = false; }
-  };
+  if (adminTab === 'mgmt') { adminMgmtBind(); return; }
+  if (adminTab === 'stats') { adminStatsBind(); return; }
 }
 
 async function adminKbBind() {
@@ -1866,7 +1807,7 @@ async function loadEmps() {
         const it = mb.closest('.emp-item');
         if (it) it.classList.remove('show-menu');
         const e = empList.find((x) => x.id === Number(mb.dataset.menu));
-        if (e) openEmpMenu(e);
+        if (e) openEmpMenu(e, mb);
       });
     });
   } catch (e) { box.innerHTML = ''; }
@@ -1878,45 +1819,72 @@ function syncChatTitle(empId, name) {
     if (ct) ct.textContent = name;
   }
 }
-/* 员工 ⋮ 操作面板：重命名 / 置顶 / 删除 */
-function openEmpMenu(e) {
+/* 小菜单式弹窗（第二套弹窗逻辑）：锚定在按钮旁，点击外部/Esc 关闭 */
+let popMenuEl = null;
+function closePopMenu() {
+  if (!popMenuEl) return;
+  document.removeEventListener('click', popMenuEl._onDoc, true);
+  document.removeEventListener('keydown', popMenuEl._onEsc);
+  popMenuEl.remove();
+  popMenuEl = null;
+}
+function openPopMenu(anchorEl, items) {
+  closePopMenu();
+  const pop = document.createElement('div');
+  pop.className = 'pop-menu';
+  pop.innerHTML = items.map((it, i) => `
+    <button class="pop-item ${it.danger ? 'danger' : ''}" data-i="${i}">
+      ${it.icon || ''}<span>${esc(it.label)}</span>
+    </button>`).join('');
+  document.body.appendChild(pop);
+  const r = anchorEl.getBoundingClientRect();
+  const pw = pop.offsetWidth, ph = pop.offsetHeight;
+  let left = r.right - pw;
+  let top = r.bottom + 6;
+  if (left < 8) left = 8;
+  if (top + ph > window.innerHeight - 8) top = r.top - ph - 6;
+  pop.style.left = Math.max(8, left) + 'px';
+  pop.style.top = Math.max(8, top) + 'px';
+  pop.querySelectorAll('[data-i]').forEach((b) => {
+    b.onclick = (ev) => { ev.stopPropagation(); const it = items[Number(b.dataset.i)]; closePopMenu(); it.onClick(); };
+  });
+  pop._onDoc = (ev) => { if (!pop.contains(ev.target)) closePopMenu(); };
+  pop._onEsc = (ev) => { if (ev.key === 'Escape') closePopMenu(); };
+  setTimeout(() => document.addEventListener('click', pop._onDoc, true), 0);
+  document.addEventListener('keydown', pop._onEsc);
+  popMenuEl = pop;
+}
+/* 员工 ⋮ 小菜单：配置 / 重命名 / 置顶 / 删除 */
+function openEmpMenu(e, anchorEl) {
   const pinned = Number(e.pinned) > 0;
-  Modal.open({ title: e.name, body: `
-    <div class="act-list">
-      <button class="act-item" id="em-rename">
-        <svg class="ic" viewBox="0 0 24 24"><path d="M4 20l4-1 11-11a2.1 2.1 0 00-3-3L5 16l-1 4z"/></svg>
-        <span>重命名</span>
-      </button>
-      <button class="act-item" id="em-pin">
-        <svg class="ic" viewBox="0 0 24 24"><path d="M9 4h6l-1 7 3 3v2H7v-2l3-3z"/><path d="M12 16v5"/></svg>
-        <span>${pinned ? '取消置顶' : '置顶'}</span>
-      </button>
-      <button class="act-item danger" id="em-del">
-        <svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-9 0l1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>
-        <span>删除</span>
-      </button>
-    </div>` });
-  document.getElementById('em-rename').onclick = () => openEmpRename(e);
-  document.getElementById('em-pin').onclick = async () => {
-    try {
-      await api(`/api/admin/ai-services/${e.id}`, { method: 'PUT', body: JSON.stringify({ pinned: pinned ? 0 : Date.now() }) });
-      Modal.close(); toast(pinned ? '已取消置顶' : '已置顶'); loadEmps();
-    } catch (err) { toast(err.message); }
-  };
-  document.getElementById('em-del').onclick = () => {
-    Modal.confirm({
-      title: '删除AI员工',
-      body: `确定删除「${esc(e.name)}」吗？它的聊天记录、知识库和话术模板会一并删除，不可恢复。`,
-      okText: '删除',
-      onOk: async () => {
-        try {
-          await api(`/api/admin/ai-services/${e.id}`, { method: 'DELETE' });
-          if (curEmpId === e.id) curEmpId = null;
-          toast('已删除'); loadEmps();
-        } catch (err) { toast(err.message); }
-      }
-    });
-  };
+  const icCfg = '<svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h.09a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h.09a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v.09a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>';
+  const icRename = '<svg class="ic" viewBox="0 0 24 24"><path d="M4 20l4-1 11-11a2.1 2.1 0 00-3-3L5 16l-1 4z"/></svg>';
+  const icPin = '<svg class="ic" viewBox="0 0 24 24"><path d="M9 4h6l-1 7 3 3v2H7v-2l3-3z"/><path d="M12 16v5"/></svg>';
+  const icDel = '<svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-9 0l1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>';
+  openPopMenu(anchorEl, [
+    { label: '配置', icon: icCfg, onClick: () => openEmpModal(e.id) },
+    { label: '重命名', icon: icRename, onClick: () => openEmpRename(e) },
+    { label: pinned ? '取消置顶' : '置顶', icon: icPin, onClick: async () => {
+      try {
+        await api(`/api/admin/ai-services/${e.id}`, { method: 'PUT', body: JSON.stringify({ pinned: pinned ? 0 : Date.now() }) });
+        toast(pinned ? '已取消置顶' : '已置顶'); loadEmps();
+      } catch (err) { toast(err.message); }
+    }},
+    { label: '删除', icon: icDel, danger: true, onClick: () => {
+      Modal.confirm({
+        title: '删除AI员工',
+        body: `确定删除「${esc(e.name)}」吗？它的聊天记录、知识库和话术模板会一并删除，不可恢复。`,
+        okText: '删除',
+        onOk: async () => {
+          try {
+            await api(`/api/admin/ai-services/${e.id}`, { method: 'DELETE' });
+            if (curEmpId === e.id) curEmpId = null;
+            toast('已删除'); loadEmps();
+          } catch (err) { toast(err.message); }
+        }
+      });
+    }},
+  ]);
 }
 function openEmpRename(e) {
   Modal.open({ title: '重命名', body: `
@@ -2178,7 +2146,6 @@ async function empBasicBind() {
       <input id="empb-desc" value="${esc(svc.description || '')}" autocomplete="off">
       <label class="fl">个性（soul）</label>
       <textarea id="empb-soul" rows="4" placeholder="定义这个员工的个性、说话风格…如：你是热情开朗的售前客服，说话简洁直接。">${esc(svc.soul || '')}</textarea>
-      <label class="fl"><input type="checkbox" id="empb-active" ${svc.is_active ? 'checked' : ''} style="width:auto"> 启用</label>
       <label class="fl"><input type="checkbox" id="empb-tpl" ${svc.tpl_retrieval ? 'checked' : ''} style="width:auto"> 话术检索 <span class="muted">（开启后聊天走话术模板链路，关闭则为简单对话）</span></label>
       <div class="frm-row" style="margin-top:12px">
         <button class="btn grow1" id="empb-save">保存</button>
@@ -2193,7 +2160,6 @@ async function empBasicBind() {
           description: document.getElementById('empb-desc').value.trim(),
           soul: document.getElementById('empb-soul').value,
           tpl_retrieval: document.getElementById('empb-tpl').checked,
-          is_active: document.getElementById('empb-active').checked,
         })});
         document.getElementById('empb-msg').textContent = '已保存';
         Modal.setTitle(`${newName} - 配置`);
