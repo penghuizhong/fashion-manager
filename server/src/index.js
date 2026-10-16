@@ -47,7 +47,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.30',
+  version: '0.10.31',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1546,6 +1546,22 @@ app.put('/api/admin/models/:id', (req, res) => {
   args.push(req.params.id);
   db.prepare(`UPDATE models SET ${sets.join(',')} WHERE id=?`).run(...args);
   res.json({ ok: true });
+});
+app.put('/api/admin/models/:id', (req, res) => {
+  const { input_price, output_price } = req.body || {};
+  try {
+    db.prepare('UPDATE models SET input_price=?, output_price=? WHERE id=?')
+      .run(Number(input_price) || 0, Number(output_price) || 0, Number(req.params.id));
+    // 同步到 model_prices（唯一价格源）
+    const m = db.prepare('SELECT model_id FROM models WHERE id=?').get(Number(req.params.id));
+    if (m) {
+      db.prepare(
+        `INSERT INTO model_prices (model_id, input_price, output_price, unit) VALUES (?,?,?,?)
+         ON CONFLICT(model_id) DO UPDATE SET input_price=excluded.input_price, output_price=excluded.output_price, updated_at=datetime('now','localtime')`
+      ).run(m.model_id, Number(input_price) || 0, Number(output_price) || 0, 'USD/1M tokens');
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.delete('/api/admin/models/:id', (req, res) => {
   db.prepare('DELETE FROM models WHERE id=?').run(req.params.id);
