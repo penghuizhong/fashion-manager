@@ -25,6 +25,42 @@ async function api(path, opt = {}) {
   return d;
 }
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// 轻量 Markdown 渲染（纯文本→安全 HTML）：代码块(含复制按钮)/行内代码/加粗/斜体/标题/列表/链接
+function renderMd(src) {
+  const blocks = [];
+  // 1. 先抽出 ```代码块（保留原始文本用于复制）
+  const tmp = String(src ?? '').replace(/```(\w*)\r?\n?([\s\S]*?)(?:\r?\n```|$)/g, (m, lang, code) => {
+    blocks.push({ lang: (lang || '').trim(), code: code.replace(/\n$/, '') });
+    return `\u0000${blocks.length - 1}\u0000`;
+  });
+  // 2. 转义剩余文本
+  let html = esc(tmp);
+  // 3. 块级：标题、列表
+  html = html
+    .replace(/^### (.+)$/gm, '<div class="md-h4">$1</div>')
+    .replace(/^## (.+)$/gm, '<div class="md-h3">$1</div>')
+    .replace(/^# (.+)$/gm, '<div class="md-h2">$1</div>');
+  html = html.replace(/(?:^|\n)((?:[ \t]*- .+(?:\n|$))+)/g, (m, g) => {
+    const items = g.trim().split('\n').map((l) => `<li>${l.replace(/^[ \t]*- /, '')}</li>`).join('');
+    return `\n<ul class="md-ul">${items}</ul>`;
+  });
+  // 4. 行内：加粗、斜体、行内代码、链接
+  html = html
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[^*\w])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+    .replace(/`([^`\n]+)`/g, '<code class="md-code">$1</code>')
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // 5. 换行
+  html = html.replace(/\n/g, '<br>');
+  // 6. 还原代码块
+  html = html.replace(/\u0000(\d+)\u0000/g, (m, i) => {
+    const b = blocks[Number(i)] || { lang: '', code: '' };
+    return `<div class="codeblock"><div class="code-head"><span>${esc(b.lang) || 'code'}</span>` +
+      `<button class="code-copy" data-code="${encodeURIComponent(b.code)}">复制</button></div>` +
+      `<pre><code>${esc(b.code)}</code></pre></div>`;
+  });
+  return html;
+}
 const fmtDate = (iso) => { try { return new Date(iso).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }); } catch { return ''; } };
 
 function topbar(title, backTo) {
@@ -975,6 +1011,15 @@ async function viewAi() {
   document.getElementById('chat-menu').onclick = () => document.getElementById('app-root').classList.add('sidebar-open');
   const body = document.getElementById('chat-body');
   const inner = document.getElementById('chat-inner');
+  // 代码块复制按钮（事件委托，历史消息和新消息通用）
+  inner.addEventListener('click', (e) => {
+    const btn = e.target.closest('.code-copy');
+    if (!btn) return;
+    const code = decodeURIComponent(btn.dataset.code || '');
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(code).then(() => toast('已复制')).catch(() => toast('复制失败'));
+    } else toast('当前环境不支持复制');
+  });
   const input = document.getElementById('chat-input');
   const sendBtn = document.getElementById('chat-send');
   const imgInput = document.getElementById('chat-img');
@@ -1003,7 +1048,7 @@ async function viewAi() {
               : `<div class="ububble">${esc(m.content)}</div>`;
           } else {
             d.className = 'cmsg ai';
-            let bodyHtml = `<p>${esc(m.content).replace(/\n/g, '<br>')}</p>`;
+            let bodyHtml = renderMd(m.content);
             // v0.15.2：历史里的话术选项卡片（静态展示，不可点）
             if (meta.kind === 'options' && meta.options && meta.options.length) {
               bodyHtml += `<div class="chat-opts static">` + meta.options.map((o) => `
@@ -1040,6 +1085,8 @@ async function viewAi() {
     inner.appendChild(d); scrollBottom();
     return d;
   };
+  // 纯文本 AI 消息：走 Markdown 渲染
+  const addAiText = (text) => addAi(renderMd(text));
   const addTyping = () => {
     hideEmpty();
     const d = document.createElement('div');
@@ -1048,8 +1095,8 @@ async function viewAi() {
     inner.appendChild(d); scrollBottom();
     return d;
   };
-  // 流式 AI 气泡：先占位，token 到了逐字追加显示
-  const streamAi = () => {
+  // 流式 AI 气泡：先占位，token 到了逐字追加；中断时下方给提示 + 重新生成按钮
+  const streamAi = (onRetry) => {
     hideEmpty();
     const d = document.createElement('div');
     d.className = 'cmsg ai';
@@ -1058,36 +1105,40 @@ async function viewAi() {
     const p = d.querySelector('p');
     let raw = '';
     return {
-      append: (tok) => { raw += tok; p.innerHTML = esc(raw).replace(/\n/g, '<br>'); scrollBottom(); },
+      append: (tok) => { raw += tok; p.innerHTML = renderMd(raw); scrollBottom(); },
       finish: () => { scrollBottom(); },
       error: (msg) => {
-        if (raw) p.innerHTML = esc(raw).replace(/\n/g, '<br>');
-        p.innerHTML += `<br><span class="miss">出错了：${esc(msg)}</span>`;
+        if (raw) p.innerHTML = renderMd(raw);
+        else p.innerHTML = '';
+        const errDiv = document.createElement('div');
+        errDiv.className = 'stream-err';
+        errDiv.innerHTML = `<span>${esc(msg)}</span><button class="chip">重新生成</button>`;
+        p.appendChild(errDiv);
         scrollBottom();
+        const btn = errDiv.querySelector('button');
+        btn.onclick = () => { btn.disabled = true; btn.textContent = '生成中…'; onRetry(); };
       },
     };
   };
   const updSend = () => { sendBtn.disabled = !input.value.trim(); };
 
-  const sendText = async () => {
-    const message = input.value.trim();
-    if (!message) return;
-    input.value = ''; updSend(); input.style.height = 'auto';
-    addUser(esc(message));
-    // v0.16.0：话术检索开关开 → 老链路；关 → 简单对话（soul+memory）
-    const cur = empList.find((e) => e.id === curEmpId) || emp;
-    if (cur.tpl_retrieval) { saveMsg('user', message); return sendTextLegacy(message); }
-    // v0.16.1 流式：先占位气泡，token 到了逐字显示，首字不再等整段生成
-    const st = streamAi();
+  // 流式发送（可重试：isRetry 时不重复显示用户气泡，后端也不重复存档用户消息）
+  const sendStreamMessage = async (message, isRetry) => {
+    const st = streamAi(() => sendStreamMessage(message, true));
+    const ctrl = new AbortController();
+    let gotToken = false;
+    // 首 token 30 秒超时：模型迟迟不回就熔断
+    const firstTokenTimer = setTimeout(() => { if (!gotToken) ctrl.abort(); }, 30000);
     try {
       const r = await fetch('/api/ai/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ service_id: curEmpId, message }),
+        body: JSON.stringify({ service_id: curEmpId, message, regenerate: !!isRetry }),
+        signal: ctrl.signal,
       });
       if (!r.ok) throw new Error(`请求失败 ${r.status}`);
       const reader = r.body.getReader();
       const decoder = new TextDecoder();
-      let buf = '', gotToken = false;
+      let buf = '', finished = false;
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -1101,15 +1152,34 @@ async function viewAi() {
           if (!data) continue;
           let o = null;
           try { o = JSON.parse(data); } catch (e) { continue; }
-          if (o.token) { gotToken = true; st.append(o.token); }
-          else if (o.error) throw new Error(o.error);
-          else if (o.done) st.finish();
+          if (o.token) {
+            if (!gotToken) { gotToken = true; clearTimeout(firstTokenTimer); }
+            st.append(o.token);
+          }
+          else if (o.error) { finished = true; throw new Error(o.error); }
+          else if (o.done) { finished = true; st.finish(); }
         }
       }
-      if (!gotToken) st.error('空回复');
+      clearTimeout(firstTokenTimer);
+      if (!gotToken) st.error('模型返回为空，请重试');
+      else if (!finished) st.error('连接中断，回复未完成');
     } catch (e) {
-      st.error(e.message);
+      clearTimeout(firstTokenTimer);
+      const timeout = (e.name === 'AbortError' && !gotToken);
+      st.error(timeout ? '等待模型回复超时（30秒），请检查网络后重试' : (e.message || '网络异常，请重试'));
     }
+  };
+
+  const sendText = async () => {
+    const message = input.value.trim();
+    if (!message) return;
+    input.value = ''; updSend(); input.style.height = 'auto';
+    addUser(esc(message));
+    // v0.16.0：话术检索开关开 → 老链路；关 → 简单对话（soul+memory）
+    const cur = empList.find((e) => e.id === curEmpId) || emp;
+    if (cur.tpl_retrieval) { saveMsg('user', message); return sendTextLegacy(message); }
+    // v0.16.1 流式：先占位气泡，token 到了逐字显示，首字不再等整段生成
+    sendStreamMessage(message, false);
   };
   // 话术检索链路（老链路，开关开启时用）
   const sendTextLegacy = async (message) => {
@@ -1120,7 +1190,7 @@ async function viewAi() {
       });
       typing.remove();
       if (d.options && d.options.length) {
-        const msgDiv = addAi('找到以下话术，点击选择：');
+        const msgDiv = addAiText('找到以下话术，点击选择：');
         const opts = document.createElement('div');
         opts.className = 'chat-opts';
         opts.innerHTML = d.options.map((o, i) => `
@@ -1141,7 +1211,7 @@ async function viewAi() {
           kb_hits: (d.kb_hits || []).map((h) => ({ kb_name: h.kb_name || '', text: String(h.text || '').slice(0, 120) })),
         });
       } else {
-        addAi('没找到匹配的话术，换个说法试试。');
+        addAiText('没找到匹配的话术，换个说法试试。');
         saveMsg('ai', '没找到匹配的话术，换个说法试试。');
       }
       if (d.kb_hits && d.kb_hits.length) {
@@ -1150,7 +1220,7 @@ async function viewAi() {
       } else { lastKbHits = []; }
     } catch (e) {
       typing.remove();
-      addAi(`出错了：${esc(e.message)}`);
+      addAiText('出错了：' + e.message);
     }
   };
   const selectTemplate = async (tid, message, rank) => {
@@ -1160,8 +1230,7 @@ async function viewAi() {
         method: 'POST', body: JSON.stringify({ template_id: tid, message, rank, service_id: curEmpId }),
       });
       typing.remove();
-      const html = esc(r.text || '生成失败').replace(/\n/g, '<br>');
-      addAi(`<p>${html}</p>`);
+      addAi(renderMd(r.text || '生成失败'));
       saveMsg('ai', r.text || '生成失败', {
         template_key: r.template_key || '',
         kb_hits: (lastKbHits || []).map((h) => ({ kb_name: h.kb_name || '', text: String(h.text || '').slice(0, 120) })),
@@ -1170,7 +1239,7 @@ async function viewAi() {
       if (r.copy_blocked) addAi('<div style="font-size:13px;color:var(--muted)">该回复被护栏拦截，请检查后手动处理。</div>');
     } catch (e) {
       typing.remove();
-      addAi(`出错了：${esc(e.message)}`);
+      addAiText('出错了：' + e.message);
     }
   };
 
@@ -1192,11 +1261,11 @@ async function viewAi() {
           method: 'POST', body: JSON.stringify({ image: dataUrl, service_id: curEmpId }),
         });
         typing.remove();
-        addAi(`<p>${esc(d.text || '识图失败').replace(/\n/g, '<br>')}</p>`);
+        addAi(renderMd(d.text || '识图失败'));
         saveMsg('ai', d.text || '识图失败');
       } catch (err) {
         typing.remove();
-        addAi(`识图出错：${esc(err.message)}`);
+        addAiText('识图出错：' + err.message);
       }
     };
     reader.readAsDataURL(file);
