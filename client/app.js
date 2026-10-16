@@ -32,6 +32,8 @@ function topbar(title, backTo) {
 }
 function setNav(active) {
   nav.querySelectorAll('.navitem').forEach(b => b.classList.toggle('on', b.dataset.nav === active));
+  const m = document.querySelector('.main');
+  if (m && active !== 'ai') m.classList.remove('chat-mode');
 }
 
 /* ---------------- 路由 ---------------- */
@@ -916,6 +918,9 @@ async function viewAi() {
   app.innerHTML = `
   <div class="chat-wrap">
     <div class="chat-head">
+      <button class="btn ghost sm" id="chat-menu" aria-label="导航" style="position:absolute;left:12px">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
       <span class="chat-title">${esc(emp.name)}</span>
       <button class="btn ghost sm chat-cfg" id="chat-config">配置</button>
     </div>
@@ -942,6 +947,7 @@ async function viewAi() {
     </div>
   </div>`;
   document.getElementById('chat-config').onclick = () => openEmpModal(curEmpId);
+  document.getElementById('chat-menu').onclick = () => document.getElementById('app-root').classList.add('sidebar-open');
   const body = document.getElementById('chat-body');
   const inner = document.getElementById('chat-inner');
   const input = document.getElementById('chat-input');
