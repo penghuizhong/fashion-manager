@@ -1553,7 +1553,7 @@ async function bindAdmin() {
       const body = {};
       MODEL_ROLES.forEach((r) => { body[r.key] = gv(`adm-${r.key}`); });
       await api('/api/admin/config', { method: 'PUT', body: JSON.stringify(body) });
-      msg.style.color = '#16a34a'; msg.textContent = '已保存';
+      msg.style.color = 'var(--success)'; msg.textContent = '已保存';
     } catch (e) { msg.style.color = ''; msg.textContent = e.message; }
     finally { save.disabled = false; }
   };
@@ -2003,6 +2003,20 @@ async function empBasicBind() {
   $('#backdrop').onclick = () => root.classList.remove('sidebar-open');
   const ab = $('#admin-btn');
   if (ab) ab.onclick = () => openAdminModal();
+  // 主题切换：light/dark/auto
+  const tb = $('#theme-btn');
+  const applyTheme = (t) => {
+    if (t === 'auto') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', t);
+    localStorage.setItem('gm-theme', t);
+  };
+  if (tb) tb.onclick = () => {
+    const cur = localStorage.getItem('gm-theme') || 'auto';
+    const next = cur === 'auto' ? 'light' : cur === 'light' ? 'dark' : 'auto';
+    applyTheme(next);
+    toast(next === 'auto' ? '跟随系统' : next === 'light' ? '浅色主题' : '深色主题');
+  };
+  applyTheme(localStorage.getItem('gm-theme') || 'auto');
   const enb = $('#emp-new');
   if (enb) enb.onclick = () => openEmpNewModal();
   loadEmps();
