@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>服装管理平台</title>
-<link rel="stylesheet" href="/styles.css?v=0.11.0">
+<link rel="stylesheet" href="/styles.css?v=0.12.0">
 </head>
 <body>
 <div class="app sidebar-open" id="app-root">
@@ -14,6 +14,10 @@
       <button class="collapse-btn" id="collapse-btn" aria-label="收起导航">
         <svg class="ic" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
+    </div>
+    <div class="emp-section">
+      <button class="btn ghost sm" id="emp-new" style="width:100%;margin-bottom:8px">+ 新建AI员工</button>
+      <div id="emp-list"></div>
     </div>
     <nav class="sidenav" id="sidenav">
       <button class="navitem" data-nav="design">
@@ -46,6 +50,6 @@
   </main>
 </div>
 <div class="toast" id="toast"></div>
-<script src="/app.js?v=0.11.0"></script>
+<script src="/app.js?v=0.12.0"></script>
 </body>
 </html>
