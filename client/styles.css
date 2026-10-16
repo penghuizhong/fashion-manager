@@ -280,6 +280,7 @@ mark.slotval{background:rgba(250,200,0,.35);color:inherit;border-radius:3px;padd
   border-bottom:1px solid var(--border)}
 .tagops{display:flex;gap:6px}
 .tagops .chip{padding:4px 10px}
+.chip.danger{color:var(--danger);border-color:var(--danger)}
 .tagops .chip.danger{color:var(--danger);border-color:var(--danger)}
 
 /* ---------------- 聊天页（ChatGPT 风格） ---------------- */
@@ -291,6 +292,9 @@ mark.slotval{background:rgba(250,200,0,.35);color:inherit;border-radius:3px;padd
 .chat-head .chat-clear .ic{width:16px;height:16px}
 /* v0.15.1：历史消息引用行（话术/知识库） */
 .cref{font-size:11px;color:var(--muted);margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)}
+/* v0.15.2：历史记录里的话术选项（静态，不可点） */
+.chat-opts.static .chat-opt{cursor:default}
+.chat-opts.static .chat-opt:hover{border-color:var(--border)}
 .chat-body{flex:1;overflow-y:auto;min-height:0}
 .chat-inner{max-width:768px;margin:0 auto;padding:20px 16px 16px;display:flex;flex-direction:column;gap:20px}
 .chat-empty{text-align:center;padding:60px 20px;color:var(--muted)}
