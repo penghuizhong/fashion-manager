@@ -47,7 +47,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.22',
+  version: '0.10.23',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -758,20 +758,34 @@ function getAdminConfig(includeKey = false) {
     base_url: m.base_url || ADMIN_DEFAULTS.base_url,
     chat_model: m.chat_model || '',
     backend_model: m.backend_model || '',
+    // 任务25: embedding 独立 Key/地址
+    embedding_base_url: m.embedding_base_url || '',
     embedding_model: m.embedding_model || '',
+    // 任务24: vision 独立供应商（默认 OpenRouter）
+    vision_provider: m.vision_provider || 'openrouter',
+    vision_base_url: m.vision_base_url || 'https://openrouter.ai/api/v1',
     vision_model: m.vision_model || '',
   };
-  if (includeKey) cfg.api_key = m.api_key || '';
+  if (includeKey) {
+    cfg.api_key = m.api_key || '';
+    cfg.embedding_api_key = m.embedding_api_key || '';
+    cfg.vision_api_key = m.vision_api_key || '';
+  }
   return cfg;
 }
-function adminHasKey() {
-  const r = db.prepare("SELECT value FROM app_config WHERE key='api_key'").get();
+function adminHasKey(key = 'api_key') {
+  const r = db.prepare('SELECT value FROM app_config WHERE key=?').get(key);
   return !!(r && String(r.value).trim());
 }
 
 // 管理配置：Key 永不返回明文，只返回是否已设置
 app.get('/api/admin/config', (req, res) => {
-  res.json({ ...getAdminConfig(false), has_key: adminHasKey() });
+  res.json({
+    ...getAdminConfig(false),
+    has_key: adminHasKey('api_key'),
+    has_embedding_key: adminHasKey('embedding_api_key'),
+    has_vision_key: adminHasKey('vision_api_key'),
+  });
 });
 app.put('/api/admin/config', (req, res) => {
   const b = req.body || {};
@@ -780,14 +794,93 @@ app.put('/api/admin/config', (req, res) => {
     'ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
   );
   const t = now();
-  for (const k of ['base_url', 'chat_model', 'backend_model', 'embedding_model', 'vision_model']) {
+  for (const k of ['base_url', 'chat_model', 'backend_model', 'embedding_model', 'vision_model',
+    'embedding_base_url', 'vision_provider', 'vision_base_url']) {
     if (b[k] !== undefined) up.run(k, String(b[k]).slice(0, 500), t);
   }
-  // api_key 为空时不覆盖旧值
-  if (b.api_key !== undefined && String(b.api_key).trim() !== '') {
-    up.run('api_key', String(b.api_key).trim(), t);
+  // api_key 类为空时不覆盖旧值
+  for (const k of ['api_key', 'embedding_api_key', 'vision_api_key']) {
+    if (b[k] !== undefined && String(b[k]).trim() !== '') {
+      up.run(k, String(b[k]).trim(), t);
+    }
   }
   res.json({ ok: true, ...getAdminConfig(false), has_key: adminHasKey() });
+});
+// 任务25: embedding 模型列表拉取
+app.post('/api/admin/embedding/models', async (req, res) => {
+  const { base_url, api_key } = req.body || {};
+  const cfg = getAdminConfig(true);
+  const url = (base_url || cfg.embedding_base_url || '').replace(/\/+$/, '');
+  const key = api_key || cfg.embedding_api_key || '';
+  if (!url) return res.status(400).json({ error: '请先填 Embedding Base URL' });
+  try {
+    const r = await fetch(url + '/models', {
+      headers: key ? { 'Authorization': `Bearer ${key}` } : {},
+      signal: AbortSignal.timeout(20000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((d.error && d.error.message) || `返回 ${r.status}`);
+    res.json({ ok: true, models: (d.data || []).map((x) => x.id).filter(Boolean) });
+  } catch (e) { res.status(500).json({ error: `拉取失败：${e.message}` }); }
+});
+app.post('/api/admin/embedding/test', async (req, res) => {
+  const cfg = getAdminConfig(true);
+  const base_url = ((req.body && req.body.base_url) || cfg.embedding_base_url || '').replace(/\/+$/, '');
+  const api_key = (req.body && req.body.api_key) || cfg.embedding_api_key || '';
+  const model = (req.body && req.body.model) || cfg.embedding_model || '';
+  if (!base_url || !model) return res.status(400).json({ error: '请先填地址和模型' });
+  try {
+    const r = await fetch(base_url + '/embeddings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(api_key ? { 'Authorization': `Bearer ${api_key}` } : {}) },
+      body: JSON.stringify({ model, input: '测试' }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((d.error && d.error.message) || `返回 ${r.status}`);
+    const dim = (d.data && d.data[0] && d.data[0].embedding && d.data[0].embedding.length) || 0;
+    res.json({ ok: true, msg: `连通正常，向量维度 ${dim}` });
+  } catch (e) { res.status(500).json({ error: `测试失败：${e.message}` }); }
+});
+// 任务24: vision 模型列表拉取 + 连通性测试
+app.post('/api/admin/vision/models', async (req, res) => {
+  const cfg = getAdminConfig(true);
+  const url = (((req.body && req.body.base_url) || cfg.vision_base_url) || '').replace(/\/+$/, '');
+  const key = (req.body && req.body.api_key) || cfg.vision_api_key || '';
+  if (!url) return res.status(400).json({ error: '请先填 Vision Base URL' });
+  try {
+    const r = await fetch(url + '/models', {
+      headers: key ? { 'Authorization': `Bearer ${key}` } : {},
+      signal: AbortSignal.timeout(20000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((d.error && d.error.message) || `返回 ${r.status}`);
+    res.json({ ok: true, models: (d.data || []).map((x) => x.id).filter(Boolean) });
+  } catch (e) { res.status(500).json({ error: `拉取失败：${e.message}` }); }
+});
+app.post('/api/admin/vision/test', async (req, res) => {
+  const cfg = getAdminConfig(true);
+  const base_url = (((req.body && req.body.base_url) || cfg.vision_base_url) || '').replace(/\/+$/, '');
+  const api_key = (req.body && req.body.api_key) || cfg.vision_api_key || '';
+  const model = (req.body && req.body.model) || cfg.vision_model || '';
+  if (!base_url || !model) return res.status(400).json({ error: '请先填地址和模型' });
+  try {
+    const r = await fetch(base_url + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(api_key ? { 'Authorization': `Bearer ${api_key}` } : {}) },
+      body: JSON.stringify({
+        model, max_tokens: 10,
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: '这是什么颜色？只回一个词。' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==' } },
+        ]}],
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((d.error && d.error.message) || `返回 ${r.status}`);
+    res.json({ ok: true, msg: '连通正常，视觉模型可工作' });
+  } catch (e) { res.status(500).json({ error: `测试失败：${e.message}` }); }
 });
 // 拉取可用模型列表（不硬编码）：GET {base_url}/models
 app.get('/api/admin/models', async (req, res) => {
@@ -903,6 +996,7 @@ async function llmUnderstand(message, cfg) {
   });
   const d = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error((d.error && d.error.message) || `模型服务返回 ${r.status}`);
+  if (d.usage) logUsage(model, 'llmUnderstand', d.usage.prompt_tokens, d.usage.completion_tokens);
   const text = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '{}';
   const u = JSON.parse(text);
   // 清洗：product_tags 只保留词表内的词
@@ -1091,6 +1185,7 @@ app.post('/api/ai/assist', aiRateLimit, aiMsgCheck, async (req, res) => {
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((d.error && d.error.message) || d.message || `模型服务返回 ${r.status}`);
+      if (d.usage) logUsage(cfg.chat_model, 'top3ranking', d.usage.prompt_tokens, d.usage.completion_tokens);
       const text = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
       const llm = JSON.parse(text);
       const ids = (llm.picks || []).map((p) => Number(p.template_id)).filter((id) => candidates.find((c) => c.id === id));
@@ -1178,6 +1273,7 @@ app.post('/api/ai/assist/select', aiRateLimit, aiMsgCheck, async (req, res) => {
       });
       const d = await r.json().catch(() => ({}));
       if (r.ok) {
+        if (d.usage) logUsage(cfg.chat_model, 'slotExtract', d.usage.prompt_tokens, d.usage.completion_tokens);
         const text = (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '{}';
         slots = JSON.parse(text).slots || {};
       }
@@ -1217,6 +1313,7 @@ async function faithfulnessCheck(filledText, slots, message, cfg) {
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) return { pass: true }; // 检查服务挂了就放行（fail open，避免阻塞）
+    if (d.usage) logUsage(cfg.backend_model || cfg.chat_model, 'faithfulness', d.usage.prompt_tokens, d.usage.completion_tokens);
     const t = (d.choices?.[0]?.message?.content) || '{}';
     return JSON.parse(t);
   } catch (e) { return { pass: true }; }
@@ -1345,6 +1442,44 @@ app.get('/api/reviews/weekly/:week', (req, res) => {
   const total = rows.length;
   const done = rows.filter((r) => r.status === 'done').length;
   res.json({ week: req.params.week, total, done, pending: total - done, rows });
+});
+
+// 任务26: 记录用量（价格与调用数据关联）
+function logUsage(model, endpoint, tokensIn, tokensOut) {
+  try {
+    const pr = db.prepare('SELECT input_price, output_price FROM model_prices WHERE model_id=?').get(model);
+    const cost = pr ? (tokensIn / 1000 * pr.input_price + tokensOut / 1000 * pr.output_price) : 0;
+    db.prepare(
+      'INSERT INTO ai_usage_log (model, endpoint, tokens_in, tokens_out, cost) VALUES (?,?,?,?,?)'
+    ).run(model, endpoint, tokensIn || 0, tokensOut || 0, cost);
+  } catch (e) {}
+}
+// 模型价格 CRUD
+app.get('/api/admin/model-prices', (req, res) => {
+  res.json(db.prepare('SELECT * FROM model_prices ORDER BY model_id').all());
+});
+app.put('/api/admin/model-prices', (req, res) => {
+  const { model_id, input_price, output_price } = req.body || {};
+  if (!model_id) return res.status(400).json({ error: 'model_id 必填' });
+  db.prepare(
+    'INSERT INTO model_prices (model_id, input_price, output_price) VALUES (?,?,?) ' +
+    "ON CONFLICT(model_id) DO UPDATE SET input_price=excluded.input_price, output_price=excluded.output_price, updated_at=datetime('now','localtime')"
+  ).run(model_id, Number(input_price) || 0, Number(output_price) || 0);
+  res.json({ ok: true });
+});
+// 用量统计（按模型汇总）
+app.get('/api/admin/usage', (req, res) => {
+  const days = Number(req.query.days) || 30;
+  const rows = db.prepare(
+    `SELECT model, COUNT(*) as calls, SUM(tokens_in) as tokens_in, SUM(tokens_out) as tokens_out, SUM(cost) as cost
+     FROM ai_usage_log WHERE created_at >= datetime('now', '-' || ? || ' days')
+     GROUP BY model ORDER BY cost DESC`
+  ).all(days);
+  const total = db.prepare(
+    `SELECT COUNT(*) as calls, SUM(cost) as cost FROM ai_usage_log
+     WHERE created_at >= datetime('now', '-' || ? || ' days')`
+  ).get(days);
+  res.json({ by_model: rows, total });
 });
 
 // ---------- static ----------
