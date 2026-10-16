@@ -53,7 +53,7 @@ function getServiceId(req) {
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.16.2',
+  version: '0.16.3',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -2106,12 +2106,13 @@ async function chatCompleteStream(messages, model, maxTokens, onToken) {
   if (!r.ok) { const t = await r.text().catch(() => ''); throw new Error(`模型服务返回 ${r.status}：${t.slice(0, 200)}`); }
   const reader = r.body.getReader();
   const decoder = new TextDecoder();
-  let buf = '', full = '', usage = null;
+  let buf = '', full = '', usage = null, sawDone = false;
   const handleLine = (line) => {
     const t = line.trim();
     if (!t.startsWith('data:')) return;
     const data = t.slice(5).trim();
-    if (!data || data === '[DONE]') return;
+    if (data === '[DONE]') { sawDone = true; return; }
+    if (!data) return;
     try {
       const json = JSON.parse(data);
       if (json.usage) usage = json.usage;
@@ -2126,7 +2127,11 @@ async function chatCompleteStream(messages, model, maxTokens, onToken) {
         reader.read(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('STREAM_STALLED')), 25000)),
       ]);
-    } catch (e) { try { reader.cancel(); } catch (e2) {} break; }
+    } catch (e) {
+      // cancel() 本身返回 promise，必须接住，否则未处理 rejection 会拖垮进程
+      try { await reader.cancel().catch(() => {}); } catch (e2) {}
+      break;
+    }
     const { done, value } = readResult;
     if (done) break;
     buf += decoder.decode(value, { stream: true });
@@ -2136,6 +2141,8 @@ async function chatCompleteStream(messages, model, maxTokens, onToken) {
   }
   if (buf.trim()) handleLine(buf);
   if (usage) logUsage(model, 'empChat', usage.prompt_tokens || 0, usage.completion_tokens || 0);
+  // 上游未正常结束（缺 [DONE]）视为中断，由调用方决定如何处理
+  if (!sawDone) { const e = new Error('TRUNCATED'); e.partial = full; throw e; }
   return full;
 }
 // 员工模型解析：员工配置优先，回退全局
@@ -2159,7 +2166,7 @@ function buildChatContext(svc) {
 }
 // 简单对话（SSE 流式）：不检索，直接由 chat_model 回复，逐 token 推送
 app.post('/api/ai/chat', aiRateLimit, aiMsgCheck, async (req, res) => {
-  const { service_id, message } = req.body || {};
+  const { service_id, message, regenerate } = req.body || {};
   const sid = Number(service_id) || 0;
   const msg = String(message || '').trim();
   if (!(sid > 0) || !msg) return res.status(400).json({ error: '参数错误' });
@@ -2178,7 +2185,8 @@ app.post('/api/ai/chat', aiRateLimit, aiMsgCheck, async (req, res) => {
     'Connection': 'keep-alive',
   });
   const send = (obj) => { try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch (e) {} };
-  db.prepare('INSERT INTO chat_messages (service_id, role, content, meta_json) VALUES (?,?,?,?)').run(sid, 'user', msg.slice(0, 8000), '{}');
+  // 重新生成时不重复存档用户消息
+  if (!regenerate) db.prepare('INSERT INTO chat_messages (service_id, role, content, meta_json) VALUES (?,?,?,?)').run(sid, 'user', msg.slice(0, 8000), '{}');
   let full = '';
   try {
     full = await chatCompleteStream(messages, models.chat, 800, (tok) => send({ token: tok }));
@@ -2189,8 +2197,10 @@ app.post('/api/ai/chat', aiRateLimit, aiMsgCheck, async (req, res) => {
     // 后台异步：大总管分析 → 按需记忆 → 按需摘要（不阻塞回复）
     setImmediate(() => orchestrateRound(sid, msg, full).catch(() => {}));
   } catch (e) {
-    if (full.trim()) db.prepare('INSERT INTO chat_messages (service_id, role, content, meta_json) VALUES (?,?,?,?)').run(sid, 'ai', full.slice(0, 8000), '{}');
-    send({ error: e.message });
+    // 上游中断：保存已生成的部分，并告诉前端可重试
+    const partial = full.trim() ? full : (e.partial || '');
+    if (partial.trim()) db.prepare('INSERT INTO chat_messages (service_id, role, content, meta_json) VALUES (?,?,?,?)').run(sid, 'ai', partial.slice(0, 8000), '{}');
+    send({ error: e.message === 'TRUNCATED' ? '模型输出中断（上游连接断开），可重新生成' : e.message });
     res.end();
   }
 });
