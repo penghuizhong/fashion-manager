@@ -47,7 +47,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.27',
+  version: '0.10.28',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1514,17 +1514,19 @@ app.get('/api/admin/models', (req, res) => {
   res.json(db.prepare(sql).all(...args));
 });
 app.post('/api/admin/models', (req, res) => {
-  const { model_id, display_name, description, category, subcategory, provider_name, base_url, api_key, input_price, output_price } = req.body || {};
+  const { model_id, display_name, description, category, subcategory, input_price, output_price } = req.body || {};
   if (!model_id || !String(model_id).trim()) return res.status(400).json({ error: '模型 ID 必填' });
   if (!category || !MODEL_CATS[category]) return res.status(400).json({ error: '分类必填' });
+  // 自动带上分类供应商信息（快照，供应商变更时模型记录保留历史）
+  const pv = db.prepare('SELECT * FROM model_providers WHERE category=?').get(category) || {};
   try {
     const r = db.prepare(
-      `INSERT INTO models (model_id, display_name, description, category, subcategory, provider_name, base_url, api_key, input_price, output_price)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`
+      `INSERT INTO models (model_id, display_name, description, category, subcategory, provider_name, base_url, input_price, output_price)
+       VALUES (?,?,?,?,?,?,?,?,?)`
     ).run(
       String(model_id).trim(), String(display_name || '').trim(), String(description || '').trim(),
-      category, subcategory || '', String(provider_name || '').trim(),
-      String(base_url || '').trim(), String(api_key || '').trim(),
+      category, subcategory || '', String(pv.provider_name || ''),
+      String(pv.base_url || ''),
       Number(input_price) || 0, Number(output_price) || 0
     );
     res.json({ ok: true, id: r.lastInsertRowid });
