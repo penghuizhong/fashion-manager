@@ -1262,8 +1262,15 @@ async function adminMgmtBind() {
   try {
     const d = await api('/api/admin/model-providers');
     cats = d.categories || {};
-  } catch (e) {}
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty">加载失败：${esc(e.message)}<br>请检查后端服务</div>`;
+    return;
+  }
   const catKeys = Object.keys(cats);
+  if (!catKeys.length) {
+    wrap.innerHTML = '<div class="empty">无可用分类</div>';
+    return;
+  }
   // 渲染分类 + 供应商配置 + 上架表单
   wrap.innerHTML = `
     <div class="frm-sec" style="font-weight:700">上架新模型</div>
@@ -1274,10 +1281,15 @@ async function adminMgmtBind() {
       </select>
       <select id="mm-sub" class="grow1"></select>
     </div>
-    <label class="fl">API Key <span class="muted">（留空用分类供应商的）</span></label>
-    <input id="mm-key" type="password" placeholder="留空则用分类供应商配置" autocomplete="off">
-    <label class="fl">Base URL <span class="muted">（留空用分类供应商的）</span></label>
-    <input id="mm-url" placeholder="留空则用分类供应商配置" autocomplete="off">
+    <details style="margin-bottom:8px">
+      <summary style="font-size:13px;color:var(--muted);cursor:pointer">自定义供应商（留空用分类配置）</summary>
+      <div style="margin-top:8px">
+        <label class="fl">API Key</label>
+        <input id="mm-key" type="password" placeholder="留空则用分类供应商配置" autocomplete="off">
+        <label class="fl">Base URL</label>
+        <input id="mm-url" placeholder="留空则用分类供应商配置" autocomplete="off">
+      </div>
+    </details>
     <button class="btn ghost frm-sec" id="mm-pull" style="width:100%">拉取可用模型</button>
     <div id="mm-pulled" style="margin-bottom:8px"></div>
     <label class="fl">模型 ID <span class="muted">（须与供应商一致）</span></label>
