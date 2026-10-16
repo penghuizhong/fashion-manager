@@ -233,16 +233,23 @@ db.exec(`CREATE TABLE IF NOT EXISTS model_prices (
   model_id TEXT PRIMARY KEY,
   input_price REAL NOT NULL DEFAULT 0,
   output_price REAL NOT NULL DEFAULT 0,
-  unit TEXT DEFAULT 'USD/1K tokens',
+  unit TEXT DEFAULT 'CNY/1M tokens',
   updated_at TEXT DEFAULT (datetime('now','localtime'))
 )`);
+// v0.16.2：价格单位统一为人民币/1M tokens（老数据单位混乱，需在模型管理里重新录入）
 db.exec(`CREATE TABLE IF NOT EXISTS ai_usage_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   model TEXT NOT NULL, endpoint TEXT NOT NULL,
   tokens_in INTEGER DEFAULT 0, tokens_out INTEGER DEFAULT 0,
   cost REAL DEFAULT 0,
+  cost_in REAL DEFAULT 0, cost_out REAL DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now','localtime'))
 )`);
+// v0.16.2：老库幂等加输入/输出成本分开统计列
+for (const col of [
+  `ADD COLUMN cost_in REAL DEFAULT 0`,
+  `ADD COLUMN cost_out REAL DEFAULT 0`,
+]) { try { db.exec(`ALTER TABLE ai_usage_log ${col}`); } catch (e) {} }
 db.exec(`CREATE TABLE IF NOT EXISTS ai_select_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   template_id INTEGER NOT NULL, template_key TEXT,
