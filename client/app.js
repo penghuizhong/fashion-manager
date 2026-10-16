@@ -957,9 +957,10 @@ function aiRenderOptions(d, message) {
   res.querySelectorAll('.card').forEach((c) => {
     c.onclick = async () => {
       const tid = Number(c.dataset.tid);
+      const rank = Array.from(res.querySelectorAll('.card')).indexOf(c);
       res.innerHTML = '<div class="muted">加载话术…</div>';
       try {
-        const r = await api('/api/ai/assist/select', { method: 'POST', body: JSON.stringify({ template_id: tid, message }) });
+        const r = await api('/api/ai/assist/select', { method: 'POST', body: JSON.stringify({ template_id: tid, message, rank }) });
         aiRenderResult(r);
       } catch (e) { res.innerHTML = `<div class="miss">${esc(e.message)}</div>`; }
     };
@@ -1002,7 +1003,23 @@ function adminBodyHTML() {
     <button class="atab ${adminTab === 'model' ? 'on' : ''}" data-atab="model">模型服务</button>
     <button class="atab ${adminTab === 'tags' ? 'on' : ''}" data-atab="tags">标签词表</button>
     <button class="atab ${adminTab === 'tpl' ? 'on' : ''}" data-atab="tpl">模板台</button>
-  </div><div id="admin-pane">${adminTab === 'model' ? adminModelHTML() : adminTab === 'tags' ? adminTagsHTML() : '<div id="admin-tpl"><div class="empty">加载中…</div></div>'}</div>`;
+    <button class="atab ${adminTab === 'price' ? 'on' : ''}" data-atab="price">模型价格</button>
+  </div><div id="admin-pane">${adminTab === 'model' ? adminModelHTML() : adminTab === 'tags' ? adminTagsHTML() : adminTab === 'price' ? adminPriceHTML() : '<div id="admin-tpl"><div class="empty">加载中…</div></div>'}</div>`;
+}
+function adminPriceHTML() {
+  return `<div class="admin-price">
+    <div class="frm-sec" style="font-weight:700">模型价格（USD / 1K tokens）</div>
+    <div class="frm-hint">价格与实际调用数据关联，用量看板自动算成本</div>
+    <div id="aprice-list"><div class="empty">加载中…</div></div>
+    <div class="frm-row" style="margin-top:8px">
+      <input id="aprice-model" placeholder="模型ID" class="grow2">
+      <input id="aprice-in" type="number" step="0.0001" min="0" placeholder="输入价" style="width:80px">
+      <input id="aprice-out" type="number" step="0.0001" min="0" placeholder="输出价" style="width:80px">
+      <button class="btn sm" id="aprice-add">添加</button>
+    </div>
+    <div class="frm-sec" style="font-weight:700;margin-top:12px">用量看板</div>
+    <div id="aprice-usage"><div class="empty">加载中…</div></div>
+  </div>`;
 }
 function adminModelHTML() {
   return `<div id="admin-model-form">
@@ -1019,10 +1036,33 @@ function adminModelHTML() {
     <select id="adm-chat"><option value="">请先刷新模型列表</option></select>
     <label class="fl">后台模型 <span class="muted">（关键词理解用，可选便宜快的）</span></label>
     <select id="adm-backend"><option value="">请先刷新模型列表</option></select>
-    <label class="fl">视觉模型 <span class="muted">（识图用，千问多模态走同接口）</span></label>
-    <select id="adm-vision"><option value="">请先刷新模型列表</option></select>
-    <label class="fl">向量模型 <span class="muted">（暂未用，预留）</span></label>
-    <input id="adm-emb" autocomplete="off" placeholder="如 text-embedding-v4">
+    <div class="frm-sec" style="font-weight:700;margin-top:4px">视觉模型（识图）</div>
+    <label class="fl">供应商</label>
+    <select id="adm-vision-provider">
+      <option value="openrouter">OpenRouter（默认）</option>
+      <option value="custom">自定义</option>
+    </select>
+    <label class="fl">Vision API Key <span class="muted">（已设置时留空不覆盖）</span></label>
+    <input id="adm-vision-key" type="password" autocomplete="off" placeholder="已设置（留空不修改）">
+    <label class="fl">Vision Base URL</label>
+    <input id="adm-vision-url" autocomplete="off" placeholder="如 https://openrouter.ai/api/v1">
+    <div class="frm-row">
+      <button class="btn ghost grow1" id="adm-vision-pull">拉取模型列表</button>
+      <button class="btn ghost grow1" id="adm-vision-test">测试连通性</button>
+    </div>
+    <label class="fl">视觉模型</label>
+    <select id="adm-vision"><option value="">请先拉取模型列表</option></select>
+    <div class="frm-sec" style="font-weight:700;margin-top:4px">向量模型（Embedding）</div>
+    <label class="fl">Embedding API Key <span class="muted">（已设置时留空不覆盖）</span></label>
+    <input id="adm-emb-key" type="password" autocomplete="off" placeholder="已设置（留空不修改）">
+    <label class="fl">Embedding Base URL</label>
+    <input id="adm-emb-url" autocomplete="off" placeholder="如 https://dashscope.aliyuncs.com/compatible-mode/v1">
+    <div class="frm-row">
+      <button class="btn ghost grow1" id="adm-emb-pull">拉取模型列表</button>
+      <button class="btn ghost grow1" id="adm-emb-test">测试连通性</button>
+    </div>
+    <label class="fl">向量模型</label>
+    <select id="adm-emb"><option value="">请先拉取模型列表</option></select>
     <button class="btn frm-sec" id="adm-save">保存</button>
     <div class="miss" id="adm-msg"></div>
   </div>`;
@@ -1159,6 +1199,59 @@ async function adminTplBind() {
   document.getElementById('atpl-new').onclick = () => openTplModal(null, 'edit', { skipList: true });
   await load();
 }
+/* 任务26b: 模型价格 + 用量看板 */
+async function adminPriceBind() {
+  const body = document.querySelector('#m-body .admin-price');
+  if (!body) return;
+  const listEl = document.getElementById('aprice-list');
+  const usageEl = document.getElementById('aprice-usage');
+  const loadPrices = async () => {
+    try {
+      const prices = await api('/api/admin/model-prices');
+      listEl.innerHTML = prices.map((pr) => `
+        <div class="frm-row" style="align-items:center">
+          <span style="flex:1;font-size:13px">${esc(pr.model_id)}</span>
+          <input type="number" step="0.0001" min="0" data-pid="${esc(pr.model_id)}" data-field="input_price"
+            value="${pr.input_price}" style="width:90px" placeholder="输入$/1K">
+          <input type="number" step="0.0001" min="0" data-pid="${esc(pr.model_id)}" data-field="output_price"
+            value="${pr.output_price}" style="width:90px" placeholder="输出$/1K">
+        </div>`).join('') || '<div class="empty">暂无价格，点击下方添加</div>';
+    } catch (e) { listEl.innerHTML = `<div class="empty">加载失败</div>`; }
+  };
+  const loadUsage = async () => {
+    try {
+      const u = await api('/api/admin/usage?days=30');
+      usageEl.innerHTML = `
+        <div class="frm-sec">近30天：${u.total.calls || 0} 次调用，$${Number(u.total.cost || 0).toFixed(4)}</div>` +
+        (u.by_model || []).map((r) => `
+        <div class="frm-row" style="font-size:13px">
+          <span style="flex:1">${esc(r.model)}</span>
+          <span class="muted">${r.calls}次 / $${Number(r.cost).toFixed(4)}</span>
+        </div>`).join('');
+    } catch (e) { usageEl.innerHTML = '<div class="empty">加载失败</div>'; }
+  };
+  document.getElementById('aprice-add').onclick = async () => {
+    const mid = document.getElementById('aprice-model').value.trim();
+    const inp = Number(document.getElementById('aprice-in').value) || 0;
+    const out = Number(document.getElementById('aprice-out').value) || 0;
+    if (!mid) return toast('请填模型ID');
+    await api('/api/admin/model-prices', { method: 'PUT', body: JSON.stringify({ model_id: mid, input_price: inp, output_price: out }) });
+    toast('已保存');
+    loadPrices();
+  };
+  // 价格输入框失焦自动保存
+  listEl.onchange = async (e) => {
+    const el = e.target;
+    if (!el.dataset.pid) return;
+    const pid = el.dataset.pid;
+    const row = listEl.querySelectorAll(`[data-pid="${CSS.escape(pid)}"]`);
+    const inp = listEl.querySelector(`[data-pid="${CSS.escape(pid)}"][data-field="input_price"]`).value;
+    const out = listEl.querySelector(`[data-pid="${CSS.escape(pid)}"][data-field="output_price"]`).value;
+    await api('/api/admin/model-prices', { method: 'PUT', body: JSON.stringify({ model_id: pid, input_price: Number(inp) || 0, output_price: Number(out) || 0 }) });
+  };
+  await loadPrices();
+  await loadUsage();
+}
 async function bindAdmin() {
   document.querySelectorAll('#m-body [data-atab]').forEach((b) => {
     b.onclick = () => { adminTab = b.dataset.atab; Modal.setBody(adminBodyHTML()); bindAdmin(); };
@@ -1166,22 +1259,87 @@ async function bindAdmin() {
   if (adminTab !== 'model') {
     if (adminTab === 'tags') { adminTagsBind(); return; }
     if (adminTab === 'tpl') { adminTplBind(); return; }
+    if (adminTab === 'price') { adminPriceBind(); return; }
     return;
   }
   try {
     const c = await api('/api/admin/config');
     const g = (id) => document.getElementById(id);
     if (g('adm-base')) g('adm-base').value = c.base_url || '';
-    if (g('adm-emb')) g('adm-emb').value = c.embedding_model || '';
+    if (g('adm-emb-url')) g('adm-emb-url').value = c.embedding_base_url || '';
+    if (g('adm-emb-key')) g('adm-emb-key').placeholder = c.has_embedding_key ? '已设置（留空不修改）' : '未设置，请输入';
+    if (g('adm-vision-provider')) g('adm-vision-provider').value = c.vision_provider || 'openrouter';
+    if (g('adm-vision-url')) g('adm-vision-url').value = c.vision_base_url || '';
+    if (g('adm-vision-key')) g('adm-vision-key').placeholder = c.has_vision_key ? '已设置（留空不修改）' : '未设置，请输入';
     if (g('adm-key')) g('adm-key').placeholder = c.has_key ? '已设置（留空不修改）' : '未设置，请输入';
     // 下拉框：先填入当前值占位，点"刷新模型列表"后载入完整列表
-    for (const [id, key] of [['adm-chat', 'chat_model'], ['adm-backend', 'backend_model'], ['adm-vision', 'vision_model']]) {
+    for (const [id, key] of [['adm-chat', 'chat_model'], ['adm-backend', 'backend_model'], ['adm-vision', 'vision_model'], ['adm-emb', 'embedding_model']]) {
       const sel = g(id);
       if (sel && c[key]) sel.innerHTML = `<option value="${esc(c[key])}" selected>${esc(c[key])}（当前）</option>`;
     }
   } catch (e) { /* 提交时再报错 */ }
   const modelsBtn = document.getElementById('adm-models');
   if (modelsBtn) modelsBtn.onclick = () => adminLoadModels();
+  // 任务25: embedding 拉模型/测试
+  const embPull = document.getElementById('adm-emb-pull');
+  if (embPull) embPull.onclick = async () => {
+    const msg = document.getElementById('adm-models-msg');
+    const base_url = document.getElementById('adm-emb-url').value.trim();
+    const api_key = document.getElementById('adm-emb-key').value.trim();
+    if (msg) msg.textContent = '拉取中…';
+    embPull.disabled = true;
+    try {
+      const d = await api('/api/admin/embedding/models', { method: 'POST', body: JSON.stringify({ base_url, api_key }) });
+      const sel = document.getElementById('adm-emb');
+      sel.innerHTML = d.models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join('') || '<option value="">无可用模型</option>';
+      if (msg) msg.textContent = `拉取到 ${d.models.length} 个模型`;
+    } catch (e) { if (msg) msg.textContent = e.message; }
+    finally { embPull.disabled = false; }
+  };
+  const embTest = document.getElementById('adm-emb-test');
+  if (embTest) embTest.onclick = async () => {
+    const msg = document.getElementById('adm-models-msg');
+    const base_url = document.getElementById('adm-emb-url').value.trim();
+    const api_key = document.getElementById('adm-emb-key').value.trim();
+    const model = document.getElementById('adm-emb').value;
+    if (msg) msg.textContent = '测试中…';
+    embTest.disabled = true;
+    try {
+      const d = await api('/api/admin/embedding/test', { method: 'POST', body: JSON.stringify({ base_url, api_key, model }) });
+      if (msg) msg.textContent = d.msg;
+    } catch (e) { if (msg) msg.textContent = e.message; }
+    finally { embTest.disabled = false; }
+  };
+  // 任务24: vision 拉模型/测试
+  const visPull = document.getElementById('adm-vision-pull');
+  if (visPull) visPull.onclick = async () => {
+    const msg = document.getElementById('adm-models-msg');
+    const base_url = document.getElementById('adm-vision-url').value.trim();
+    const api_key = document.getElementById('adm-vision-key').value.trim();
+    if (msg) msg.textContent = '拉取中…';
+    visPull.disabled = true;
+    try {
+      const d = await api('/api/admin/vision/models', { method: 'POST', body: JSON.stringify({ base_url, api_key }) });
+      const sel = document.getElementById('adm-vision');
+      sel.innerHTML = d.models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join('') || '<option value="">无可用模型</option>';
+      if (msg) msg.textContent = `拉取到 ${d.models.length} 个模型`;
+    } catch (e) { if (msg) msg.textContent = e.message; }
+    finally { visPull.disabled = false; }
+  };
+  const visTest = document.getElementById('adm-vision-test');
+  if (visTest) visTest.onclick = async () => {
+    const msg = document.getElementById('adm-models-msg');
+    const base_url = document.getElementById('adm-vision-url').value.trim();
+    const api_key = document.getElementById('adm-vision-key').value.trim();
+    const model = document.getElementById('adm-vision').value;
+    if (msg) msg.textContent = '测试中…';
+    visTest.disabled = true;
+    try {
+      const d = await api('/api/admin/vision/test', { method: 'POST', body: JSON.stringify({ base_url, api_key, model }) });
+      if (msg) msg.textContent = d.msg;
+    } catch (e) { if (msg) msg.textContent = e.message; }
+    finally { visTest.disabled = false; }
+  };
   const testBtn = document.getElementById('adm-test');
   if (testBtn) testBtn.onclick = async () => {
     const msg = document.getElementById('adm-models-msg');
@@ -1207,7 +1365,13 @@ async function bindAdmin() {
       await api('/api/admin/config', { method: 'PUT', body: JSON.stringify({
         api_key: g('adm-key'), base_url: g('adm-base'), chat_model: g('adm-chat'),
         backend_model: g('adm-backend'),
-        embedding_model: g('adm-emb'), vision_model: g('adm-vision'),
+        embedding_base_url: g('adm-emb-url') && g('adm-emb-url').value.trim(),
+        embedding_api_key: g('adm-emb-key') && g('adm-emb-key').value.trim(),
+        embedding_model: g('adm-emb') && g('adm-emb').value,
+        vision_provider: g('adm-vision-provider') && g('adm-vision-provider').value,
+        vision_base_url: g('adm-vision-url') && g('adm-vision-url').value.trim(),
+        vision_api_key: g('adm-vision-key') && g('adm-vision-key').value.trim(),
+        vision_model: g('adm-vision') && g('adm-vision').value,
       }) });
       msg.style.color = '#16a34a'; msg.textContent = '已保存';
       const k = document.getElementById('adm-key');
