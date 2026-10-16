@@ -47,7 +47,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.31',
+  version: '0.11.0',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1033,6 +1033,44 @@ async function llmUnderstand(message, cfg) {
   return _out;
 }
 // 精准检索：意图→场景过滤 + 产品标签加权 + LLM关键词 LIKE（不再用 2-gram 切片）
+// 余弦相似度
+function cosSim(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i];
+  }
+  return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+}
+// 知识库向量检索：多库合并，按相似度重排
+async function kbRetrieve(message, topK = 5) {
+  const svc = db.prepare('SELECT * FROM ai_services WHERE is_active=1 ORDER BY id LIMIT 1').get();
+  if (!svc) return [];
+  const kbIds = JSON.parse(svc.kb_ids || '[]');
+  if (!kbIds.length) return [];
+  // 只查 ready 的库
+  const readyKbs = db.prepare(
+    `SELECT id, name FROM knowledge_bases WHERE id IN (${kbIds.map(() => '?').join(',')}) AND status='ready'`
+  ).all(...kbIds);
+  if (!readyKbs.length) return [];
+  const kbMap = Object.fromEntries(readyKbs.map((k) => [k.id, k.name]));
+  const chunks = db.prepare(
+    `SELECT kb_id, chunk_text, embedding FROM kb_chunks WHERE kb_id IN (${readyKbs.map(() => '?').join(',')})`
+  ).all(...readyKbs.map((k) => k.id));
+  if (!chunks.length) return [];
+  // 查询向量化
+  let qEmb;
+  try { qEmb = (await embedTexts([message]))[0]; }
+  catch (e) { return []; }
+  if (!qEmb || !qEmb.length) return [];
+  // 算相似度
+  const scored = chunks.map((c) => {
+    let emb = [];
+    try { emb = JSON.parse(c.embedding || '[]'); } catch (e) {}
+    return { ...c, kb_name: kbMap[c.kb_id] || '', score: cosSim(qEmb, emb) };
+  }).filter((c) => c.score > 0.3);
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, topK);
+}
 function smartRetrieve(under, message) {
   const tagIds = under.product_tags.length
     ? db.prepare(`SELECT id FROM tags WHERE name IN (${under.product_tags.map(() => '?').join(',')})`).all(...under.product_tags).map((r) => r.id)
@@ -1169,7 +1207,20 @@ app.post('/api/ai/assist', aiRateLimit, aiMsgCheck, async (req, res) => {
     candidates = [];
   }
   if (!candidates.length) candidates = aiRetrieve(message);
-  if (!candidates.length) return res.status(404).json({ error: '话术库中没有匹配的模板' });
+  // 知识库检索（并行，不阻塞模板流程）
+  let kbHits = [];
+  try { kbHits = await kbRetrieve(message, 3); } catch (e) {}
+  // 记 KB 使用日志（按库去重记一次）
+  if (kbHits.length) {
+    try {
+      const seen = new Set();
+      const ins = db.prepare('INSERT INTO kb_usage_log (kb_id, kb_name) VALUES (?,?)');
+      for (const h of kbHits) {
+        if (!seen.has(h.kb_id)) { seen.add(h.kb_id); ins.run(h.kb_id, h.kb_name || ''); }
+      }
+    } catch (e) {}
+  }
+  if (!candidates.length && !kbHits.length) return res.status(404).json({ error: '话术库中没有匹配的模板' });
 
   // Top-3 逻辑：Top-1 断层领先时直接取前3（省 LLM）；否则 LLM 从候选中选3个
   const top1 = candidates[0];
@@ -1252,7 +1303,10 @@ app.post('/api/ai/assist', aiRateLimit, aiMsgCheck, async (req, res) => {
       has_vars: (c.vars || []).length > 0,
     };
   });
-  res.json({ ok: true, options, message });
+  res.json({
+    ok: true, options, message,
+    kb_hits: kbHits.map((h) => ({ kb_name: h.kb_name, text: h.chunk_text.slice(0, 300), score: Number(h.score.toFixed(3)) })),
+  });
 });
 
 // 选中某条候选后：抽 slot + 护栏 + 渲染
@@ -1675,7 +1729,219 @@ app.get('/api/admin/models/stats', (req, res) => {
     return { ...m, calls, cost, by_endpoint: byEndpoint };
   }).sort((a, b) => b.calls - a.calls);
   const total = { calls: byModel.reduce((a, b) => a + b.calls, 0), cost: byModel.reduce((a, b) => a + b.cost, 0) };
-  res.json({ by_category: byCat, by_model: byModel, total, categories: MODEL_CATS });
+  // 知识库维度：近30天各库被命中次数
+  let byKb = [];
+  try {
+    byKb = db.prepare(
+      `SELECT kb_id, kb_name, COUNT(*) as hits FROM kb_usage_log
+       WHERE created_at >= datetime('now','-30 days')
+       GROUP BY kb_id, kb_name ORDER BY hits DESC`
+    ).all();
+  } catch (e) {}
+  res.json({ by_category: byCat, by_model: byModel, by_kb: byKb, total, categories: MODEL_CATS });
+});
+
+// ---------- 知识库插件 CRUD ----------
+app.get('/api/admin/kb', (req, res) => {
+  const kbs = db.prepare('SELECT * FROM knowledge_bases ORDER BY updated_at DESC').all();
+  res.json(kbs.map((k) => {
+    const docs = db.prepare('SELECT COUNT(*) as n, SUM(char_count) as chars FROM kb_documents WHERE kb_id=?').get(k.id);
+    const chunks = db.prepare('SELECT COUNT(*) as n FROM kb_chunks WHERE kb_id=?').get(k.id);
+    return { ...k, doc_count: docs.n || 0, char_count: docs.chars || 0, chunk_count: chunks.n || 0 };
+  }));
+});
+app.post('/api/admin/kb', (req, res) => {
+  const { name, description, scenario } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: '名称必填' });
+  const r = db.prepare(
+    'INSERT INTO knowledge_bases (name, description, scenario) VALUES (?,?,?)'
+  ).run(String(name).trim(), String(description || ''), String(scenario || ''));
+  res.json({ ok: true, id: r.lastInsertRowid });
+});
+app.put('/api/admin/kb/:id', (req, res) => {
+  const { name, description, scenario } = req.body || {};
+  db.prepare("UPDATE knowledge_bases SET name=?, description=?, scenario=?, updated_at=datetime('now','localtime') WHERE id=?")
+    .run(String(name || ''), String(description || ''), String(scenario || ''), Number(req.params.id));
+  res.json({ ok: true });
+});
+app.delete('/api/admin/kb/:id', (req, res) => {
+  const id = Number(req.params.id);
+  db.prepare('DELETE FROM kb_chunks WHERE kb_id=?').run(id);
+  db.prepare('DELETE FROM kb_documents WHERE kb_id=?').run(id);
+  db.prepare('DELETE FROM knowledge_bases WHERE id=?').run(id);
+  res.json({ ok: true });
+});
+app.get('/api/admin/kb/:id/docs', (req, res) => {
+  res.json(db.prepare('SELECT id, filename, file_type, char_count, status, error_msg, created_at FROM kb_documents WHERE kb_id=? ORDER BY id').all(Number(req.params.id)));
+});
+
+// ---------- 知识库文稿处理流水线 ----------
+// 切片：按段落切，每块 ~500 字，重叠 50 字
+function chunkText(text, chunkSize = 500, overlap = 50) {
+  const paras = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const chunks = [];
+  let cur = '';
+  for (const p of paras) {
+    if ((cur + '\n\n' + p).length > chunkSize && cur) {
+      chunks.push(cur);
+      // 重叠：保留上一块末尾 overlap 字
+      cur = cur.slice(-overlap) + '\n\n' + p;
+      if (cur.length > chunkSize * 1.5) { chunks.push(cur); cur = ''; }
+    } else {
+      cur = cur ? cur + '\n\n' + p : p;
+    }
+  }
+  if (cur.trim()) chunks.push(cur);
+  return chunks.filter((c) => c.trim().length > 20);
+}
+// 向量化：调 embedding 供应商
+async function embedTexts(texts) {
+  const cfg = getAdminConfig(true);
+  const pv = db.prepare('SELECT * FROM model_providers WHERE category=?').get('embedding');
+  const base_url = ((pv && pv.base_url) || cfg.embedding_base_url || '').replace(/\/+$/, '');
+  const api_key = (pv && pv.api_key) || cfg.embedding_api_key || '';
+  const model = cfg.embedding_model || '';
+  if (!base_url || !api_key || !model) throw new Error('未配置向量模型（去模型管理→分类供应商配置）');
+  const r = await fetch(base_url + '/embeddings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${api_key}` },
+    body: JSON.stringify({ model, input: texts }),
+    signal: AbortSignal.timeout(60000),
+  });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((d.error && d.error.message) || `向量化失败 ${r.status}`);
+  return (d.data || []).sort((a, b) => a.index - b.index).map((x) => x.embedding);
+}
+// 上传文稿（文本直传，客户端读文件转文本）
+app.post('/api/admin/kb/:id/upload', async (req, res) => {
+  const kbId = Number(req.params.id);
+  const { filename, content } = req.body || {};
+  if (!content || !String(content).trim()) return res.status(400).json({ error: '内容为空' });
+  const kb = db.prepare('SELECT * FROM knowledge_bases WHERE id=?').get(kbId);
+  if (!kb) return res.status(404).json({ error: '知识库不存在' });
+  const text = String(content).trim();
+  const docId = db.prepare(
+    'INSERT INTO kb_documents (kb_id, filename, file_type, raw_text, char_count, status) VALUES (?,?,?,?,?,?)'
+  ).run(kbId, String(filename || '未命名.txt'), 'txt', text, text.length, 'uploaded').lastInsertRowid;
+  db.prepare("UPDATE knowledge_bases SET status='processing', updated_at=datetime('now','localtime') WHERE id=?").run(kbId);
+  // 异步处理：解析→切片→向量化
+  (async () => {
+    try {
+      const chunks = chunkText(text);
+      db.prepare('UPDATE kb_documents SET status=? WHERE id=?').run('chunked', docId);
+      // 批量向量化（每批 10 个）
+      for (let i = 0; i < chunks.length; i += 10) {
+        const batch = chunks.slice(i, i + 10);
+        const embs = await embedTexts(batch);
+        const ins = db.prepare('INSERT INTO kb_chunks (kb_id, doc_id, chunk_index, chunk_text, embedding) VALUES (?,?,?,?,?)');
+        batch.forEach((ct, j) => {
+          ins.run(kbId, docId, i + j, ct, JSON.stringify(embs[j] || []));
+        });
+      }
+      db.prepare('UPDATE kb_documents SET status=? WHERE id=?').run('embedded', docId);
+      db.prepare("UPDATE knowledge_bases SET status='ready', updated_at=datetime('now','localtime') WHERE id=?").run(kbId);
+    } catch (e) {
+      db.prepare('UPDATE kb_documents SET status=?, error_msg=? WHERE id=?').run('error', String(e.message).slice(0, 500), docId);
+      db.prepare("UPDATE knowledge_bases SET status='error', updated_at=datetime('now','localtime') WHERE id=?").run(kbId);
+    }
+  })();
+  res.json({ ok: true, doc_id: docId, msg: '已开始处理' });
+});
+// 重新处理（删除旧切片重跑）
+app.post('/api/admin/kb/:id/reprocess', async (req, res) => {
+  const kbId = Number(req.params.id);
+  db.prepare('DELETE FROM kb_chunks WHERE kb_id=?').run(kbId);
+  const docs = db.prepare('SELECT * FROM kb_documents WHERE kb_id=?').all(kbId);
+  db.prepare("UPDATE knowledge_bases SET status='processing' WHERE id=?").run(kbId);
+  (async () => {
+    try {
+      for (const doc of docs) {
+        const chunks = chunkText(doc.raw_text);
+        for (let i = 0; i < chunks.length; i += 10) {
+          const batch = chunks.slice(i, i + 10);
+          const embs = await embedTexts(batch);
+          const ins = db.prepare('INSERT INTO kb_chunks (kb_id, doc_id, chunk_index, chunk_text, embedding) VALUES (?,?,?,?,?)');
+          batch.forEach((ct, j) => ins.run(kbId, doc.id, i + j, ct, JSON.stringify(embs[j] || [])));
+        }
+        db.prepare('UPDATE kb_documents SET status=? WHERE id=?').run('embedded', doc.id);
+      }
+      db.prepare("UPDATE knowledge_bases SET status='ready' WHERE id=?").run(kbId);
+    } catch (e) {
+      db.prepare("UPDATE knowledge_bases SET status='error' WHERE id=?").run(kbId);
+    }
+  })();
+  res.json({ ok: true, msg: '已开始重新处理' });
+});
+
+// 一键导入：话术模板 → 知识库
+app.post('/api/admin/kb/import-templates', async (req, res) => {
+  const { kb_id } = req.body || {};
+  // 找或建"话术库"知识库
+  let kbId = kb_id ? Number(kb_id) : null;
+  if (!kbId) {
+    const ex = db.prepare("SELECT id FROM knowledge_bases WHERE name='话术库 v2.1'").get();
+    if (ex) kbId = ex.id;
+    else {
+      kbId = db.prepare(
+        "INSERT INTO knowledge_bases (name, description, scenario, status) VALUES ('话术库 v2.1','92 条话术模板导入','通用','processing')"
+      ).run().lastInsertRowid;
+    }
+  }
+  const kb = db.prepare('SELECT * FROM knowledge_bases WHERE id=?').get(kbId);
+  if (!kb) return res.status(404).json({ error: '知识库不存在' });
+  // 异步导入
+  (async () => {
+    try {
+      const tpls = db.prepare('SELECT * FROM templates ORDER BY id').all();
+      let done = 0;
+      for (const t of tpls) {
+        const full = getTemplateFull(t.id);
+        const locales = (full.locales || []).map((l) => `[${l.lang}] ${l.title}\n${l.body}`).join('\n\n');
+        const text = `场景：${t.note_zh || ''}\n编号：${t.key || ''}\n${locales}`.trim();
+        if (text.length < 20) continue;
+        const chunks = chunkText(text, 400, 30);
+        for (let i = 0; i < chunks.length; i += 10) {
+          const batch = chunks.slice(i, i + 10);
+          const embs = await embedTexts(batch);
+          const ins = db.prepare('INSERT INTO kb_chunks (kb_id, doc_id, chunk_index, chunk_text, embedding, metadata_json) VALUES (?,?,?,?,?,?)');
+          batch.forEach((ct, j) => {
+            ins.run(kbId, 0, done + i + j, ct, JSON.stringify(embs[j] || []),
+              JSON.stringify({ template_id: t.id, template_key: t.key }));
+          });
+        }
+        done += chunks.length;
+      }
+      // 建一个虚拟文档记录
+      db.prepare(
+        'INSERT INTO kb_documents (kb_id, filename, file_type, raw_text, char_count, status) VALUES (?,?,?,?,?,?)'
+      ).run(kbId, '话术模板92条', 'template', `共 ${tpls.length} 条模板`, 0, 'embedded');
+      db.prepare("UPDATE knowledge_bases SET status='ready', updated_at=datetime('now','localtime') WHERE id=?").run(kbId);
+    } catch (e) {
+      db.prepare("UPDATE knowledge_bases SET status='error' WHERE id=?").run(kbId);
+    }
+  })();
+  res.json({ ok: true, kb_id: kbId, msg: '已开始导入' });
+});
+
+// ---------- AI 客服实例 ----------
+app.get('/api/admin/ai-services', (req, res) => {
+  res.json(db.prepare('SELECT * FROM ai_services ORDER BY id').all());
+});
+app.put('/api/admin/ai-services/:id', (req, res) => {
+  const { name, description, kb_ids, model_config_json, tone_config_json, is_active } = req.body || {};
+  const cur = db.prepare('SELECT * FROM ai_services WHERE id=?').get(Number(req.params.id));
+  if (!cur) return res.status(404).json({ error: '不存在' });
+  db.prepare(`UPDATE ai_services SET name=?, description=?, kb_ids=?, model_config_json=?, tone_config_json=?, is_active=?, updated_at=datetime('now','localtime') WHERE id=?`)
+    .run(
+      name !== undefined ? String(name) : cur.name,
+      description !== undefined ? String(description) : cur.description,
+      kb_ids !== undefined ? JSON.stringify(kb_ids) : cur.kb_ids,
+      model_config_json !== undefined ? JSON.stringify(model_config_json) : cur.model_config_json,
+      tone_config_json !== undefined ? JSON.stringify(tone_config_json) : cur.tone_config_json,
+      is_active !== undefined ? (is_active ? 1 : 0) : cur.is_active,
+      Number(req.params.id)
+    );
+  res.json({ ok: true });
 });
 
 // ---------- static ----------
