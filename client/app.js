@@ -957,6 +957,30 @@ async function viewAi() {
 
   const scrollBottom = () => { body.scrollTop = body.scrollHeight; };
   const hideEmpty = () => { const e = emptyEl(); if (e) e.remove(); };
+  // 加载该员工独立聊天记录
+  const saveMsg = (role, content) => {
+    api('/api/ai/chat/messages', { method: 'POST', body: JSON.stringify({ service_id: curEmpId, role, content }) }).catch(() => {});
+  };
+  (async () => {
+    try {
+      const hist = await api(`/api/ai/chat/history?service_id=${curEmpId}`);
+      if (hist.length) {
+        hideEmpty();
+        hist.forEach((m) => {
+          const d = document.createElement('div');
+          if (m.role === 'user') {
+            d.className = 'cmsg user';
+            d.innerHTML = `<div class="ububble">${esc(m.content)}</div>`;
+          } else {
+            d.className = 'cmsg ai';
+            d.innerHTML = `<div class="atext"><p>${esc(m.content).replace(/\n/g, '<br>')}</p></div>`;
+          }
+          inner.appendChild(d);
+        });
+        scrollBottom();
+      }
+    } catch (e) {}
+  })();
   const addUser = (html) => {
     hideEmpty();
     const d = document.createElement('div');
@@ -987,6 +1011,7 @@ async function viewAi() {
     if (!message) return;
     input.value = ''; updSend(); input.style.height = 'auto';
     addUser(esc(message));
+    saveMsg('user', message);
     const typing = addTyping();
     try {
       const d = await api('/api/ai/assist', {
@@ -1027,6 +1052,7 @@ async function viewAi() {
       typing.remove();
       const html = esc(r.text || '生成失败').replace(/\n/g, '<br>');
       addAi(`<p>${html}</p>`);
+      saveMsg('ai', r.text || '生成失败');
       if (r.copy_blocked) addAi('<div style="font-size:13px;color:var(--muted)">该回复被护栏拦截，请检查后手动处理。</div>');
     } catch (e) {
       typing.remove();
@@ -1049,6 +1075,7 @@ async function viewAi() {
         });
         typing.remove();
         addAi(`<p>${esc(d.text || '识图失败').replace(/\n/g, '<br>')}</p>`);
+        saveMsg('ai', d.text || '识图失败');
       } catch (err) {
         typing.remove();
         addAi(`识图出错：${esc(err.message)}`);
@@ -1714,7 +1741,7 @@ async function loadEmps() {
   try {
     empList = await api('/api/admin/ai-services');
     box.innerHTML = empList.map((e) => `
-      <button class="navitem emp-item ${e.id === curEmpId ? 'on' : ''}" data-emp="${e.id}">
+      <button class="emp-item ${e.id === curEmpId ? 'on' : ''}" data-emp="${e.id}">
         <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg>
         <span>${esc(e.name)}</span>
       </button>`).join('');

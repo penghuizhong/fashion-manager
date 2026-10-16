@@ -328,6 +328,15 @@ try {
   const c = db.prepare('SELECT COUNT(*) as n FROM ai_services').get().n;
   if (!c) db.prepare(`INSERT INTO ai_services (name, description) VALUES ('默认客服','初始 AI 客服实例')`).run();
 } catch (e) {}
+// 员工独立聊天记录
+db.exec(`CREATE TABLE IF NOT EXISTS chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  service_id INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_service ON chat_messages(service_id, id)`);
 
 db.exec(`CREATE TABLE IF NOT EXISTS kb_usage_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
