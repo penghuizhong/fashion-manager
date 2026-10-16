@@ -321,11 +321,30 @@ db.exec(`CREATE TABLE IF NOT EXISTS ai_services (
   tone_config_json TEXT DEFAULT '{}',
   is_active INTEGER DEFAULT 1,
   pinned INTEGER DEFAULT 0,
+  soul TEXT DEFAULT '',
+  tpl_retrieval INTEGER DEFAULT 0,
+  summary TEXT DEFAULT '',
+  summary_upto_id INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now','localtime')),
   updated_at TEXT DEFAULT (datetime('now','localtime'))
 )`);
 // v0.15.0：老库幂等加 pinned 列（置顶时间戳，0=未置顶）
 try { db.exec(`ALTER TABLE ai_services ADD COLUMN pinned INTEGER DEFAULT 0`); } catch (e) {}
+// v0.16.0：老库幂等加 soul / 话术检索开关 / 摘要列
+for (const col of [
+  `ADD COLUMN soul TEXT DEFAULT ''`,
+  `ADD COLUMN tpl_retrieval INTEGER DEFAULT 0`,
+  `ADD COLUMN summary TEXT DEFAULT ''`,
+  `ADD COLUMN summary_upto_id INTEGER DEFAULT 0`,
+]) { try { db.exec(`ALTER TABLE ai_services ${col}`); } catch (e) {} }
+// v0.16.0：员工记忆表（大总管自动提取 + 配置弹窗可管理）
+db.exec(`CREATE TABLE IF NOT EXISTS employee_memories (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  service_id INTEGER NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_emp_mem_service ON employee_memories(service_id, id)`);
 // 员工独立聊天记录
 db.exec(`CREATE TABLE IF NOT EXISTS chat_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
