@@ -1003,12 +1003,21 @@ async function viewAi() {
               : `<div class="ububble">${esc(m.content)}</div>`;
           } else {
             d.className = 'cmsg ai';
+            let bodyHtml = `<p>${esc(m.content).replace(/\n/g, '<br>')}</p>`;
+            // v0.15.2：历史里的话术选项卡片（静态展示，不可点）
+            if (meta.kind === 'options' && meta.options && meta.options.length) {
+              bodyHtml += `<div class="chat-opts static">` + meta.options.map((o) => `
+                <div class="chat-opt">
+                  <div class="k">${esc(o.template_key || '')}</div>
+                  <div class="p">${esc(o.preview || '')}</div>
+                </div>`).join('') + `</div>`;
+            }
             let refs = '';
             const refParts = [];
             if (meta.template_key) refParts.push(`话术 ${esc(meta.template_key)}`);
             if (meta.kb_hits && meta.kb_hits.length) refParts.push(`知识库 ${meta.kb_hits.map((h) => esc(h.kb_name || '')).filter(Boolean).join('、')}`);
             if (refParts.length) refs = `<div class="cref">引用：${refParts.join(' · ')}</div>`;
-            d.innerHTML = `<div class="atext"><p>${esc(m.content).replace(/\n/g, '<br>')}</p>${refs}</div>`;
+            d.innerHTML = `<div class="atext">${bodyHtml}${refs}</div>`;
           }
           inner.appendChild(d);
         });
@@ -1046,7 +1055,21 @@ async function viewAi() {
     if (!message) return;
     input.value = ''; updSend(); input.style.height = 'auto';
     addUser(esc(message));
-    saveMsg('user', message);
+    // v0.16.0：话术检索开关开 → 老链路；关 → 简单对话（soul+memory）
+    const cur = empList.find((e) => e.id === curEmpId) || emp;
+    if (cur.tpl_retrieval) { saveMsg('user', message); return sendTextLegacy(message); }
+    const typing = addTyping();
+    try {
+      const d = await api('/api/ai/chat', { method: 'POST', body: JSON.stringify({ service_id: curEmpId, message }) });
+      typing.remove();
+      addAi(`<p>${esc((d.text || '').trim() || '（空回复）').replace(/\n/g, '<br>')}</p>`);
+    } catch (e) {
+      typing.remove();
+      addAi(`出错了：${esc(e.message)}`);
+    }
+  };
+  // 话术检索链路（老链路，开关开启时用）
+  const sendTextLegacy = async (message) => {
     const typing = addTyping();
     try {
       const d = await api('/api/ai/assist', {
@@ -1067,8 +1090,16 @@ async function viewAi() {
         opts.querySelectorAll('.chat-opt').forEach((el) => {
           el.onclick = () => selectTemplate(Number(el.dataset.tid), message, Number(el.dataset.rank));
         });
+        // v0.15.2：话术选项也存档，历史记录里还原完整链条（用户消息→选项→选中回复）
+        saveMsg('ai', '找到以下话术，点击选择：', {
+          kind: 'options',
+          message,
+          options: d.options.map((o) => ({ template_id: o.template_id, template_key: o.template_key, preview: o.preview || '' })),
+          kb_hits: (d.kb_hits || []).map((h) => ({ kb_name: h.kb_name || '', text: String(h.text || '').slice(0, 120) })),
+        });
       } else {
         addAi('没找到匹配的话术，换个说法试试。');
+        saveMsg('ai', '没找到匹配的话术，换个说法试试。');
       }
       if (d.kb_hits && d.kb_hits.length) {
         lastKbHits = d.kb_hits;
@@ -1947,6 +1978,7 @@ function empBodyHTML() {
     <button class="atab ${empTab === 'tpl' ? 'on' : ''}" data-etab="tpl">模板台</button>
     <button class="atab ${empTab === 'kb' ? 'on' : ''}" data-etab="kb">知识库</button>
     <button class="atab ${empTab === 'model' ? 'on' : ''}" data-etab="model">模型</button>
+    <button class="atab ${empTab === 'memory' ? 'on' : ''}" data-etab="memory">记忆</button>
   </div><div id="emp-pane">${empTabContent()}</div>`;
 }
 function empTabContent() {
@@ -1955,6 +1987,7 @@ function empTabContent() {
   if (empTab === 'tpl') return '<div id="emp-tpl"><div class="empty">加载中…</div></div>';
   if (empTab === 'kb') return '<div class="emp-kb"><div class="empty">加载中…</div></div>';
   if (empTab === 'model') return '<div id="emp-model"><div class="empty">加载中…</div></div>';
+  if (empTab === 'memory') return '<div id="emp-memory"><div class="empty">加载中…</div></div>';
   return '';
 }
 async function empBind() {
@@ -1966,6 +1999,7 @@ async function empBind() {
   if (empTab === 'tpl') return empTplBind();
   if (empTab === 'kb') return empKbBind();
   if (empTab === 'model') return empModelBind();
+  if (empTab === 'memory') return empMemoryBind();
 }
 async function empTagsBind() {
   const box = document.getElementById('emp-tags');
@@ -2142,7 +2176,10 @@ async function empBasicBind() {
       <input id="empb-name" value="${esc(svc.name)}" autocomplete="off">
       <label class="fl">描述</label>
       <input id="empb-desc" value="${esc(svc.description || '')}" autocomplete="off">
+      <label class="fl">个性（soul）</label>
+      <textarea id="empb-soul" rows="4" placeholder="定义这个员工的个性、说话风格…如：你是热情开朗的售前客服，说话简洁直接。">${esc(svc.soul || '')}</textarea>
       <label class="fl"><input type="checkbox" id="empb-active" ${svc.is_active ? 'checked' : ''} style="width:auto"> 启用</label>
+      <label class="fl"><input type="checkbox" id="empb-tpl" ${svc.tpl_retrieval ? 'checked' : ''} style="width:auto"> 话术检索 <span class="muted">（开启后聊天走话术模板链路，关闭则为简单对话）</span></label>
       <div class="frm-row" style="margin-top:12px">
         <button class="btn grow1" id="empb-save">保存</button>
       </div>
@@ -2154,6 +2191,8 @@ async function empBasicBind() {
         await api(`/api/admin/ai-services/${svc.id}`, { method: 'PUT', body: JSON.stringify({
           name: newName,
           description: document.getElementById('empb-desc').value.trim(),
+          soul: document.getElementById('empb-soul').value,
+          tpl_retrieval: document.getElementById('empb-tpl').checked,
           is_active: document.getElementById('empb-active').checked,
         })});
         document.getElementById('empb-msg').textContent = '已保存';
@@ -2163,6 +2202,77 @@ async function empBasicBind() {
       } catch (e) { document.getElementById('empb-msg').textContent = e.message; }
     };
   } catch (e) { box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
+}
+// v0.16.0：记忆 tab——大总管自动提取的记忆，可改可删；显示/清空对话摘要
+async function empMemoryBind() {
+  const box = document.getElementById('emp-memory');
+  if (!box) return;
+  const backHere = () => {
+    const e = empList.find((x) => x.id === empCtxId) || { name: 'AI员工' };
+    empTab = 'memory';
+    Modal.open({ title: `${esc(e.name)} - 配置`, body: empBodyHTML() });
+    empBind();
+  };
+  const draw = async () => {
+    try {
+      const [mems, svcs] = await Promise.all([
+        api(`/api/admin/emp-memories?service_id=${empCtxId}`),
+        api('/api/admin/ai-services'),
+      ]);
+      const svc = svcs.find((x) => x.id === empCtxId);
+      box.innerHTML = `
+        <div class="frm-hint">后台大总管每轮自动分析、只记重要的信息；聊天时会把全部记忆拼入上下文。</div>
+        ${svc && svc.summary ? `<div class="sechead">对话摘要</div>
+          <div class="talkbox">${esc(svc.summary)}</div>
+          <div class="frm-row" style="margin-top:8px"><button class="chip danger" id="emem-sumclear">清空摘要</button></div>` : ''}
+        <div class="sechead">记忆（${mems.length}）</div>
+        <div id="emem-list">${mems.map((m) => `
+          <div class="frm-row" data-mid="${m.id}" style="align-items:flex-start;margin-bottom:8px">
+            <span style="flex:1;font-size:13px">${esc(m.content)}<br><span class="muted" style="font-size:11px">${esc(m.created_at || '')}</span></span>
+            <button class="chip" data-act="edit">改</button>
+            <button class="chip danger" data-act="del">删</button>
+          </div>`).join('') || '<div class="empty">暂无记忆</div>'}</div>`;
+      const sumClear = document.getElementById('emem-sumclear');
+      if (sumClear) sumClear.onclick = () => {
+        Modal.confirm({ title: '清空摘要', body: '确定清空对话摘要吗？', okText: '清空', onOk: async () => {
+          try { await api(`/api/admin/ai-services/${empCtxId}/summary`, { method: 'DELETE' }); toast('已清空'); }
+          catch (e) { toast(e.message); }
+          backHere();
+        }});
+      };
+      box.querySelectorAll('[data-act="edit"]').forEach((b) => {
+        b.onclick = () => {
+          const row = b.closest('[data-mid]');
+          const id = Number(row.dataset.mid);
+          const m = mems.find((x) => x.id === id);
+          if (!m) return;
+          row.innerHTML = `<textarea rows="2" style="flex:1" id="emem-e">${esc(m.content)}</textarea>
+            <button class="chip" id="emem-ok">保存</button>
+            <button class="chip" id="emem-cancel">取消</button>`;
+          document.getElementById('emem-ok').onclick = async () => {
+            const c = document.getElementById('emem-e').value.trim();
+            if (!c) return toast('内容不能为空');
+            try {
+              await api(`/api/admin/emp-memories/${id}`, { method: 'PUT', body: JSON.stringify({ content: c }) });
+              toast('已保存'); draw();
+            } catch (e) { toast(e.message); }
+          };
+          document.getElementById('emem-cancel').onclick = () => draw();
+        };
+      });
+      box.querySelectorAll('[data-act="del"]').forEach((b) => {
+        b.onclick = () => {
+          const id = Number(b.closest('[data-mid]').dataset.mid);
+          Modal.confirm({ title: '删除记忆', body: '确定删除这条记忆吗？', okText: '删除', onOk: async () => {
+            try { await api(`/api/admin/emp-memories/${id}`, { method: 'DELETE' }); toast('已删除'); }
+            catch (e) { toast(e.message); }
+            backHere();
+          }});
+        };
+      });
+    } catch (e) { box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
+  };
+  await draw();
 }
 
 /* ---------------- 启动 ---------------- */
