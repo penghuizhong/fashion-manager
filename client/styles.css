@@ -287,6 +287,10 @@ mark.slotval{background:rgba(250,200,0,.35);color:inherit;border-radius:3px;padd
 .chat-head{display:flex;align-items:center;justify-content:center;position:relative;padding:10px 16px;border-bottom:1px solid var(--border)}
 .chat-head .chat-title{font-size:15px;font-weight:600}
 .chat-head .chat-cfg{position:absolute;right:12px}
+.chat-head .chat-clear{position:absolute;right:76px;width:30px;padding-left:0;padding-right:0}
+.chat-head .chat-clear .ic{width:16px;height:16px}
+/* v0.15.1：历史消息引用行（话术/知识库） */
+.cref{font-size:11px;color:var(--muted);margin-top:6px;padding-top:6px;border-top:1px dashed var(--border)}
 .chat-body{flex:1;overflow-y:auto;min-height:0}
 .chat-inner{max-width:768px;margin:0 auto;padding:20px 16px 16px;display:flex;flex-direction:column;gap:20px}
 .chat-empty{text-align:center;padding:60px 20px;color:var(--muted)}
