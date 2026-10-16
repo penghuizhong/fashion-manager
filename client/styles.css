@@ -1,14 +1,39 @@
 :root{
   --bg:#f7f7f8; --surface:#ffffff; --surface2:#f1f1f3;
   --text:#17171a; --muted:#8a8a93; --border:#e4e4e7;
-  --accent:#17171a; --on-accent:#ffffff; --danger:#c2402e;
+  --accent:#17171a; --on-accent:#ffffff; --danger:#c2402e; --success:#16a34a;
   --selected:rgba(0,0,0,.07); --accent-hover:#2f2f31;
+  --btn-primary-bg:#17171a; --btn-primary-text:#ffffff; --btn-primary-hover:#2f2f31;
+  --btn-ghost-bg:rgba(0,0,0,.05); --btn-ghost-text:#17171a;
+  --btn-danger-text:#c2402e; --btn-danger-border:rgba(194,64,46,.4);
   --radius:12px;
+  color-scheme:light;
+}
+/* 手动主题覆盖（优先级高于系统） */
+[data-theme="light"]{
+  --bg:#f7f7f8; --surface:#ffffff; --surface2:#f1f1f3;
+  --text:#17171a; --muted:#8a8a93; --border:#e4e4e7;
+  --accent:#17171a; --on-accent:#ffffff; --danger:#c2402e; --success:#16a34a;
+  --selected:rgba(0,0,0,.07); --accent-hover:#2f2f31;
+  --btn-primary-bg:#17171a; --btn-primary-text:#ffffff; --btn-primary-hover:#2f2f31;
+  --btn-ghost-bg:rgba(0,0,0,.05); --btn-ghost-text:#17171a;
+  --btn-danger-text:#c2402e; --btn-danger-border:rgba(194,64,46,.4);
+  color-scheme:light;
+}
+[data-theme="dark"]{
+  --bg:#101013; --surface:#18181c; --surface2:#222228;
+  --text:#f2f2f4; --muted:#9a9aa3; --border:#2c2c33;
+  --accent:#f2f2f4; --on-accent:#101013; --danger:#e0684e; --success:#4ade80;
+  --selected:rgba(255,255,255,.12); --accent-hover:#d7d7d9;
+  --btn-primary-bg:#3a3a3e; --btn-primary-text:#ffffff; --btn-primary-hover:#48484e;
+  --btn-ghost-bg:rgba(255,255,255,.08); --btn-ghost-text:#f2f2f4;
+  --btn-danger-text:#e0684e; --btn-danger-border:rgba(224,104,78,.45);
+  color-scheme:dark;
 }
 @media (prefers-color-scheme: dark){
   :root{ --bg:#101013; --surface:#18181c; --surface2:#222228;
     --text:#f2f2f4; --muted:#9a9aa3; --border:#2c2c33;
-    --accent:#f2f2f4; --on-accent:#101013;
+    --accent:#f2f2f4; --on-accent:#101013; --success:#4ade80;
     --selected:rgba(255,255,255,.12); --accent-hover:#d7d7d9;
     /* 深色模式按钮：不用纯白，用深灰底+白字 */
     --btn-primary-bg:#3a3a3e; --btn-primary-text:#ffffff; --btn-primary-hover:#48484e;
@@ -79,7 +104,8 @@ display:flex;align-items:center;justify-content:space-between}
   .app:not(.sidebar-open) .sidebar{margin-left:0}
   .sidebar-expand-btn{display:none !important}
   .menu-btn{display:flex;flex-shrink:0}
-  .collapse-btn{display:none}
+  .collapse-btn{display:flex;position:absolute;top:12px;right:12px;z-index:5}
+  .sidebar-top{position:relative;padding-right:48px}
 }
 
 /* 顶栏 */
@@ -292,3 +318,7 @@ mark.slotval{background:rgba(250,200,0,.35);color:inherit;border-radius:3px;padd
 .emp-item:hover{background:var(--surface2)}
 .emp-item.on{background:var(--surface2);font-weight:600}
 .emp-item .ic{width:20px;height:20px;flex-shrink:0}
+/* 禁止下拉刷新 */
+html,body{overscroll-behavior-y:none}
+body{touch-action:pan-x pan-y}
+.chat-body{overscroll-behavior:contain}
