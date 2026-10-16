@@ -2,7 +2,7 @@ import express from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import db, { now, DATA_DIR } from './db.js';
+import db, { now, DATA_DIR, deleteServiceCascade } from './db.js';
 import { nextStyleNo, canTransition, STATUS_LABEL, CATEGORIES, SEASONS } from './styleNo.js';
 import { SNIPPETS, TEMPLATES } from './seedTemplatesV4.js';
 import { applyTagRules } from './seedTagRules.js';
@@ -45,15 +45,15 @@ const row = (r) => {
   return r;
 };
 
-// AI 员工：从请求取 service_id，默认 1（默认客服）
+// AI 员工：从请求取 service_id；未传则返回 0（v0.15.0 起不再硬编码默认员工）
 function getServiceId(req) {
   const v = (req.query && req.query.service_id) || (req.body && req.body.service_id);
   const n = Number(v);
-  return n > 0 ? n : 1;
+  return n > 0 ? n : 0;
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.14.3',
+  version: '0.15.0',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1977,7 +1977,7 @@ app.post('/api/admin/kb/import-templates', async (req, res) => {
 
 // ---------- AI 客服实例 ----------
 app.get('/api/admin/ai-services', (req, res) => {
-  res.json(db.prepare('SELECT * FROM ai_services ORDER BY id').all());
+  res.json(db.prepare('SELECT * FROM ai_services ORDER BY pinned DESC, id ASC').all());
 });
 app.post('/api/admin/ai-services', (req, res) => {
   const { name, description } = req.body || {};
@@ -1988,25 +1988,16 @@ app.post('/api/admin/ai-services', (req, res) => {
 });
 app.delete('/api/admin/ai-services/:id', (req, res) => {
   const id = Number(req.params.id);
-  if (id === 1) return res.status(400).json({ error: '默认客服不能删除' });
-  // 级联删除该员工的数据
-  db.prepare('DELETE FROM kb_chunks WHERE kb_id IN (SELECT id FROM knowledge_bases WHERE service_id=?)').run(id);
-  db.prepare('DELETE FROM kb_documents WHERE kb_id IN (SELECT id FROM knowledge_bases WHERE service_id=?)').run(id);
-  db.prepare('DELETE FROM knowledge_bases WHERE service_id=?').run(id);
-  db.prepare('DELETE FROM template_tags WHERE template_id IN (SELECT id FROM templates WHERE service_id=?)').run(id);
-  db.prepare('DELETE FROM template_vars WHERE template_id IN (SELECT id FROM templates WHERE service_id=?)').run(id);
-  db.prepare('DELETE FROM template_locales WHERE template_id IN (SELECT id FROM templates WHERE service_id=?)').run(id);
-  db.prepare('DELETE FROM templates WHERE service_id=?').run(id);
-  db.prepare('DELETE FROM tags WHERE service_id=?').run(id);
-  db.prepare('DELETE FROM chat_messages WHERE service_id=?').run(id);
-  db.prepare('DELETE FROM ai_services WHERE id=?').run(id);
+  if (!(id > 0)) return res.status(400).json({ error: '参数错误' });
+  // 级联删除该员工的数据（v0.15.0 起默认客服也不再受保护，全部走后端数据）
+  deleteServiceCascade(id);
   res.json({ ok: true });
 });
 app.put('/api/admin/ai-services/:id', (req, res) => {
-  const { name, description, kb_ids, model_config_json, tone_config_json, is_active } = req.body || {};
+  const { name, description, kb_ids, model_config_json, tone_config_json, is_active, pinned } = req.body || {};
   const cur = db.prepare('SELECT * FROM ai_services WHERE id=?').get(Number(req.params.id));
   if (!cur) return res.status(404).json({ error: '不存在' });
-  db.prepare(`UPDATE ai_services SET name=?, description=?, kb_ids=?, model_config_json=?, tone_config_json=?, is_active=?, updated_at=datetime('now','localtime') WHERE id=?`)
+  db.prepare(`UPDATE ai_services SET name=?, description=?, kb_ids=?, model_config_json=?, tone_config_json=?, is_active=?, pinned=?, updated_at=datetime('now','localtime') WHERE id=?`)
     .run(
       name !== undefined ? String(name) : cur.name,
       description !== undefined ? String(description) : cur.description,
@@ -2014,6 +2005,7 @@ app.put('/api/admin/ai-services/:id', (req, res) => {
       model_config_json !== undefined ? JSON.stringify(model_config_json) : cur.model_config_json,
       tone_config_json !== undefined ? JSON.stringify(tone_config_json) : cur.tone_config_json,
       is_active !== undefined ? (is_active ? 1 : 0) : cur.is_active,
+      pinned !== undefined ? Number(pinned) || 0 : cur.pinned,
       Number(req.params.id)
     );
   res.json({ ok: true });
@@ -2021,19 +2013,19 @@ app.put('/api/admin/ai-services/:id', (req, res) => {
 
 // ---------- 员工独立聊天记录 ----------
 app.get('/api/ai/chat/history', (req, res) => {
-  const sid = Number(req.query.service_id) || 1;
+  const sid = Number(req.query.service_id) || 0;
   const rows = db.prepare('SELECT id, role, content, created_at FROM chat_messages WHERE service_id=? ORDER BY id ASC LIMIT 200').all(sid);
   res.json(rows);
 });
 app.post('/api/ai/chat/messages', (req, res) => {
   const { service_id, role, content } = req.body || {};
-  const sid = Number(service_id) || 1;
+  const sid = Number(service_id) || 0;
   if (!['user', 'ai'].includes(role) || !content) return res.status(400).json({ error: '参数错误' });
   const r = db.prepare('INSERT INTO chat_messages (service_id, role, content) VALUES (?,?,?)').run(sid, role, String(content).slice(0, 8000));
   res.json({ ok: true, id: r.lastInsertRowid });
 });
 app.delete('/api/ai/chat/history', (req, res) => {
-  const sid = Number(req.query.service_id) || 1;
+  const sid = Number(req.query.service_id) || 0;
   db.prepare('DELETE FROM chat_messages WHERE service_id=?').run(sid);
   res.json({ ok: true });
 });

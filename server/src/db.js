@@ -314,20 +314,18 @@ db.exec(`CREATE TABLE IF NOT EXISTS kb_chunks (
 db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_chunks_kb ON kb_chunks(kb_id)`);
 db.exec(`CREATE TABLE IF NOT EXISTS ai_services (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL DEFAULT '默认客服',
+  name TEXT NOT NULL DEFAULT '',
   description TEXT DEFAULT '',
   kb_ids TEXT DEFAULT '[]',
   model_config_json TEXT DEFAULT '{}',
   tone_config_json TEXT DEFAULT '{}',
   is_active INTEGER DEFAULT 1,
+  pinned INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now','localtime')),
   updated_at TEXT DEFAULT (datetime('now','localtime'))
 )`);
-// 默认 AI 客服实例（幂等）
-try {
-  const c = db.prepare('SELECT COUNT(*) as n FROM ai_services').get().n;
-  if (!c) db.prepare(`INSERT INTO ai_services (name, description) VALUES ('默认客服','初始 AI 客服实例')`).run();
-} catch (e) {}
+// v0.15.0：老库幂等加 pinned 列（置顶时间戳，0=未置顶）
+try { db.exec(`ALTER TABLE ai_services ADD COLUMN pinned INTEGER DEFAULT 0`); } catch (e) {}
 // 员工独立聊天记录
 db.exec(`CREATE TABLE IF NOT EXISTS chat_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -358,6 +356,28 @@ for (const tbl of ['tags', 'templates', 'knowledge_bases']) {
 db.exec(`CREATE INDEX IF NOT EXISTS idx_tags_service ON tags(service_id)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_templates_service ON templates(service_id)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_service ON knowledge_bases(service_id)`);
+
+// v0.15.0：级联删除员工及其全部归属数据（供 DELETE 路由与一次性迁移共用）
+export function deleteServiceCascade(id) {
+  const sid = Number(id);
+  if (!(sid > 0)) return;
+  db.prepare('DELETE FROM kb_chunks WHERE kb_id IN (SELECT id FROM knowledge_bases WHERE service_id=?)').run(sid);
+  db.prepare('DELETE FROM kb_documents WHERE kb_id IN (SELECT id FROM knowledge_bases WHERE service_id=?)').run(sid);
+  db.prepare('DELETE FROM knowledge_bases WHERE service_id=?').run(sid);
+  db.prepare('DELETE FROM template_tags WHERE template_id IN (SELECT id FROM templates WHERE service_id=?)').run(sid);
+  db.prepare('DELETE FROM template_vars WHERE template_id IN (SELECT id FROM templates WHERE service_id=?)').run(sid);
+  db.prepare('DELETE FROM template_locales WHERE template_id IN (SELECT id FROM templates WHERE service_id=?)').run(sid);
+  db.prepare('DELETE FROM templates WHERE service_id=?').run(sid);
+  db.prepare('DELETE FROM tags WHERE service_id=?').run(sid);
+  db.prepare('DELETE FROM chat_messages WHERE service_id=?').run(sid);
+  db.prepare('DELETE FROM ai_services WHERE id=?').run(sid);
+}
+// v0.15.0 一次性迁移：删除硬编码种子"默认客服"（用户 2026-10-16 明确要求删除；
+// 仅匹配种子签名 name+description，用户改名/自建的不动；执行一次后无匹配即空转）
+try {
+  const seed = db.prepare(`SELECT id FROM ai_services WHERE name='默认客服' AND description='初始 AI 客服实例'`).get();
+  if (seed) { deleteServiceCascade(seed.id); console.log('[migrate] v0.15.0 删除种子默认客服'); }
+} catch (e) {}
 
 export default db;
 export const now = () => new Date().toISOString();
