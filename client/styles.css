@@ -9,27 +9,7 @@
   --radius:12px;
   color-scheme:light;
 }
-/* 手动主题覆盖（优先级高于系统） */
-[data-theme="light"]{
-  --bg:#f7f7f8; --surface:#ffffff; --surface2:#f1f1f3;
-  --text:#17171a; --muted:#8a8a93; --border:#e4e4e7;
-  --accent:#17171a; --on-accent:#ffffff; --danger:#c2402e; --success:#16a34a;
-  --selected:rgba(0,0,0,.07); --accent-hover:#2f2f31;
-  --btn-primary-bg:#17171a; --btn-primary-text:#ffffff; --btn-primary-hover:#2f2f31;
-  --btn-ghost-bg:rgba(0,0,0,.05); --btn-ghost-text:#17171a;
-  --btn-danger-text:#c2402e; --btn-danger-border:rgba(194,64,46,.4);
-  color-scheme:light;
-}
-[data-theme="dark"]{
-  --bg:#101013; --surface:#18181c; --surface2:#222228;
-  --text:#f2f2f4; --muted:#9a9aa3; --border:#2c2c33;
-  --accent:#f2f2f4; --on-accent:#101013; --danger:#e0684e; --success:#4ade80;
-  --selected:rgba(255,255,255,.12); --accent-hover:#d7d7d9;
-  --btn-primary-bg:#3a3a3e; --btn-primary-text:#ffffff; --btn-primary-hover:#48484e;
-  --btn-ghost-bg:rgba(255,255,255,.08); --btn-ghost-text:#f2f2f4;
-  --btn-danger-text:#e0684e; --btn-danger-border:rgba(224,104,78,.45);
-  color-scheme:dark;
-}
+
 @media (prefers-color-scheme: dark){
   :root{ --bg:#101013; --surface:#18181c; --surface2:#222228;
     --text:#f2f2f4; --muted:#9a9aa3; --border:#2c2c33;
@@ -40,6 +20,27 @@
     --btn-ghost-bg:rgba(255,255,255,.08); --btn-ghost-text:#f2f2f4;
     --btn-danger-text:#e0684e; --btn-danger-border:rgba(224,104,78,.45);
   }
+}
+/* 手动主题：html[data-theme] 优先级高于 :root，必须写在 @media 之后 */
+html[data-theme="light"]{
+  --bg:#f7f7f8; --surface:#ffffff; --surface2:#f1f1f3;
+  --text:#17171a; --muted:#8a8a93; --border:#e4e4e7;
+  --accent:#17171a; --on-accent:#ffffff; --danger:#c2402e; --success:#16a34a;
+  --selected:rgba(0,0,0,.07); --accent-hover:#2f2f31;
+  --btn-primary-bg:#17171a; --btn-primary-text:#ffffff; --btn-primary-hover:#2f2f31;
+  --btn-ghost-bg:rgba(0,0,0,.05); --btn-ghost-text:#17171a;
+  --btn-danger-text:#c2402e; --btn-danger-border:rgba(194,64,46,.4);
+  color-scheme:light;
+}
+html[data-theme="dark"]{
+  --bg:#101013; --surface:#18181c; --surface2:#222228;
+  --text:#f2f2f4; --muted:#9a9aa3; --border:#2c2c33;
+  --accent:#f2f2f4; --on-accent:#101013; --danger:#e0684e; --success:#4ade80;
+  --selected:rgba(255,255,255,.12); --accent-hover:#d7d7d9;
+  --btn-primary-bg:#3a3a3e; --btn-primary-text:#ffffff; --btn-primary-hover:#48484e;
+  --btn-ghost-bg:rgba(255,255,255,.08); --btn-ghost-text:#f2f2f4;
+  --btn-danger-text:#e0684e; --btn-danger-border:rgba(224,104,78,.45);
+  color-scheme:dark;
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
 html,body{margin:0;padding:0}
