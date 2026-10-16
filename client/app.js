@@ -933,7 +933,7 @@ async function viewAi() {
     if (!message) return toast('请先粘贴买家消息');
     go.disabled = true; res.innerHTML = '<div class="muted">AI 生成中…</div>';
     try {
-      const d = await api('/api/ai/assist', { method: 'POST', body: JSON.stringify({ message }) });
+      const d = await api('/api/ai/assist', { method: 'POST', body: JSON.stringify({ message, service_id: curEmpId }) });
       aiRenderOptions(d, message);
     } catch (e) { res.innerHTML = `<div class="miss">${esc(e.message)}</div>`; }
     finally { go.disabled = false; }
@@ -960,7 +960,7 @@ function aiRenderOptions(d, message) {
       const rank = Array.from(res.querySelectorAll('.card')).indexOf(c);
       res.innerHTML = '<div class="muted">加载话术…</div>';
       try {
-        const r = await api('/api/ai/assist/select', { method: 'POST', body: JSON.stringify({ template_id: tid, message, rank }) });
+        const r = await api('/api/ai/assist/select', { method: 'POST', body: JSON.stringify({ template_id: tid, message, rank, service_id: curEmpId }) });
         aiRenderResult(r);
       } catch (e) { res.innerHTML = `<div class="miss">${esc(e.message)}</div>`; }
     };
@@ -1001,13 +1001,10 @@ function openAdminModal() {
 function adminBodyHTML() {
   return `<div class="admin-tabs">
     <button class="atab ${adminTab === 'model' ? 'on' : ''}" data-atab="model">模型服务</button>
-    <button class="atab ${adminTab === 'tags' ? 'on' : ''}" data-atab="tags">标签词表</button>
-    <button class="atab ${adminTab === 'tpl' ? 'on' : ''}" data-atab="tpl">模板台</button>
     <button class="atab ${adminTab === 'price' ? 'on' : ''}" data-atab="price">模型价格</button>
     <button class="atab ${adminTab === 'mgmt' ? 'on' : ''}" data-atab="mgmt">模型管理</button>
-    <button class="atab ${adminTab === 'kb' ? 'on' : ''}" data-atab="kb">知识库</button>
     <button class="atab ${adminTab === 'stats' ? 'on' : ''}" data-atab="stats">统计</button>
-  </div><div id="admin-pane">${adminTab === 'model' ? adminModelHTML() : adminTab === 'tags' ? adminTagsHTML() : adminTab === 'price' ? adminPriceHTML() : adminTab === 'mgmt' ? '<div class="admin-mgmt"><div class="empty">加载中…</div></div>' : adminTab === 'kb' ? '<div class="admin-kb"><div class="empty">加载中…</div></div>' : adminTab === 'stats' ? '<div class="admin-stats"><div class="empty">加载中…</div></div>' : '<div id="admin-tpl"><div class="empty">加载中…</div></div>'}</div>`;
+  </div><div id="admin-pane">${adminTab === 'model' ? adminModelHTML() : adminTab === 'price' ? adminPriceHTML() : adminTab === 'mgmt' ? '<div class="admin-mgmt"><div class="empty">加载中…</div></div>' : adminTab === 'stats' ? '<div class="admin-stats"><div class="empty">加载中…</div></div>' : ''}</div>`;
 }
 function adminPriceHTML() {
   return `<div class="admin-price">
@@ -1462,11 +1459,8 @@ async function bindAdmin() {
     b.onclick = () => { adminTab = b.dataset.atab; Modal.setBody(adminBodyHTML()); bindAdmin(); };
   });
   if (adminTab !== 'model') {
-    if (adminTab === 'tags') { adminTagsBind(); return; }
-    if (adminTab === 'tpl') { adminTplBind(); return; }
     if (adminTab === 'price') { adminPriceBind(); return; }
     if (adminTab === 'mgmt') { adminMgmtBind(); return; }
-    if (adminTab === 'kb') { adminKbBind(); return; }
     if (adminTab === 'stats') { adminStatsBind(); return; }
     return;
   }
@@ -1632,6 +1626,286 @@ function kbUploadModal(kbId, onDone) {
   };
 }
 
+/* ---------------- AI 员工 ---------------- */
+let empList = [];
+let curEmpId = 1;
+async function loadEmps() {
+  const box = document.getElementById('emp-list');
+  if (!box) return;
+  try {
+    empList = await api('/api/admin/ai-services');
+    box.innerHTML = empList.map((e) => `
+      <button class="navitem emp-item ${e.id === curEmpId ? 'on' : ''}" data-emp="${e.id}">
+        <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg>
+        <span>${esc(e.name)}</span>
+      </button>`).join('');
+    box.querySelectorAll('[data-emp]').forEach((b) => {
+      b.onclick = () => { curEmpId = Number(b.dataset.emp); loadEmps(); openEmpModal(curEmpId); };
+    });
+  } catch (e) { box.innerHTML = ''; }
+}
+function openEmpNewModal() {
+  Modal.open({ title: '新建AI员工', body: `
+    <label class="fl">名称</label>
+    <input id="empn-name" placeholder="如：婚纱客服" autocomplete="off">
+    <label class="fl">描述（可选）</label>
+    <input id="empn-desc" placeholder="这个员工负责什么" autocomplete="off">
+    <div class="modal-foot">
+      <button class="btn ghost" id="empn-cancel">取消</button>
+      <button class="btn" id="empn-ok">创建</button>
+    </div>` });
+  document.getElementById('empn-cancel').onclick = () => Modal.close();
+  document.getElementById('empn-ok').onclick = async () => {
+    const name = document.getElementById('empn-name').value.trim();
+    if (!name) return toast('请填写名称');
+    try {
+      const r = await api('/api/admin/ai-services', { method: 'POST', body: JSON.stringify({
+        name, description: document.getElementById('empn-desc').value.trim(),
+      })});
+      Modal.close(); toast('已创建'); curEmpId = r.id; loadEmps(); openEmpModal(r.id);
+    } catch (e) { toast(e.message); }
+  };
+}
+
+/* ---------------- 员工配置弹窗 ---------------- */
+let empTab = 'basic';
+let empCtxId = 1;
+function openEmpModal(empId) {
+  empCtxId = empId;
+  empTab = 'basic';
+  const emp = empList.find((e) => e.id === empId) || { name: 'AI员工' };
+  Modal.open({ title: `${esc(emp.name)} - 配置`, body: empBodyHTML() });
+  empBind();
+}
+function empBodyHTML() {
+  return `<div class="admin-tabs">
+    <button class="atab ${empTab === 'basic' ? 'on' : ''}" data-etab="basic">基础</button>
+    <button class="atab ${empTab === 'tags' ? 'on' : ''}" data-etab="tags">标签词表</button>
+    <button class="atab ${empTab === 'tpl' ? 'on' : ''}" data-etab="tpl">模板台</button>
+    <button class="atab ${empTab === 'kb' ? 'on' : ''}" data-etab="kb">知识库</button>
+    <button class="atab ${empTab === 'model' ? 'on' : ''}" data-etab="model">模型</button>
+  </div><div id="emp-pane">${empTabContent()}</div>`;
+}
+function empTabContent() {
+  if (empTab === 'basic') return '<div id="emp-basic"><div class="empty">加载中…</div></div>';
+  if (empTab === 'tags') return '<div id="emp-tags"><div class="empty">加载中…</div></div>';
+  if (empTab === 'tpl') return '<div id="emp-tpl"><div class="empty">加载中…</div></div>';
+  if (empTab === 'kb') return '<div class="emp-kb"><div class="empty">加载中…</div></div>';
+  if (empTab === 'model') return '<div id="emp-model"><div class="empty">加载中…</div></div>';
+  return '';
+}
+async function empBind() {
+  document.querySelectorAll('#m-body [data-etab]').forEach((b) => {
+    b.onclick = () => { empTab = b.dataset.etab; Modal.setBody(empBodyHTML()); empBind(); };
+  });
+  if (empTab === 'basic') return empBasicBind();
+  if (empTab === 'tags') return empTagsBind();
+  if (empTab === 'tpl') return empTplBind();
+  if (empTab === 'kb') return empKbBind();
+  if (empTab === 'model') return empModelBind();
+}
+async function empTagsBind() {
+  const box = document.getElementById('emp-tags');
+  if (!box) return;
+  box.innerHTML = `
+    <div class="frm-row">
+      <input id="etag-new-name" placeholder="新标签名" class="grow2">
+      <select id="etag-new-grp" class="grow1">${TAG_GROUPS.map((g) => `<option>${g}</option>`).join('')}</select>
+      <button class="btn sm" id="etag-add">新增</button>
+    </div>
+    <div class="frm-hint">改名/删除/合并即时生效；删除标签会清除它的全部打标关联。</div>
+    <div id="etag-list"><div class="empty">加载中…</div></div>`;
+  const listBox = document.getElementById('etag-list');
+  const draw = async () => {
+    let tags;
+    try { tags = await api(`/api/tags?service_id=${empCtxId}`); }
+    catch (e) { listBox.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+    listBox.innerHTML = TAG_GROUPS.map((g) => {
+      const items = tags.filter((x) => x.grp === g);
+      if (!items.length) return '';
+      return `<div class="mt8"><div class="muted" style="font-size:12px;margin-bottom:4px">${g}（${items.length}）</div>
+      ${items.map((x) => `<div class="tagrow" data-id="${x.id}">
+        <span class="tchip sm">${esc(x.name)}${x.used ? ` <span class="muted">×${x.used}</span>` : ''}</span>
+        <span class="tagops">
+          <button class="chip" data-act="del">删除</button>
+        </span></div>`).join('')}</div>`;
+    }).join('') || '<div class="empty">暂无标签</div>';
+    listBox.querySelectorAll('[data-act="del"]').forEach((b) => {
+      b.onclick = () => {
+        const row = b.closest('.tagrow');
+        Modal.confirm({ title: '删除标签', body: '确定删除该标签吗？', okText: '删除', onOk: async () => {
+          await api(`/api/tags/${row.dataset.id}?service_id=${empCtxId}`, { method: 'DELETE' });
+          draw();
+        }});
+      };
+    });
+  };
+  document.getElementById('etag-add').onclick = async () => {
+    const name = document.getElementById('etag-new-name').value.trim();
+    const grp = document.getElementById('etag-new-grp').value;
+    if (!name) return toast('请填写标签名');
+    try {
+      await api(`/api/tags?service_id=${empCtxId}`, { method: 'POST', body: JSON.stringify({ name, grp, service_id: empCtxId }) });
+      document.getElementById('etag-new-name').value = '';
+      draw();
+    } catch (e) { toast(e.message); }
+  };
+  await draw();
+}
+async function empTplBind() {
+  const box = document.getElementById('emp-tpl');
+  if (!box) return;
+  box.innerHTML = `<div id="etpl-list"><div class="empty">加载中…</div></div>`;
+  const listBox = document.getElementById('etpl-list');
+  try {
+    const tpls = await api(`/api/reply-templates?service_id=${empCtxId}`);
+    listBox.innerHTML = tpls.map((t) => `
+      <div class="frm-row" style="font-size:13px;align-items:center">
+        <span style="flex:1">${esc(t.key)}<br><span class="muted" style="font-size:11px">${esc(t.note_zh || '')}</span></span>
+        <span class="muted" style="font-size:11px">${esc(t.scene)}</span>
+      </div>`).join('') || '<div class="empty">暂无模板</div>';
+  } catch (e) { listBox.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
+}
+async function empKbBind() {
+  // 复用知识库逻辑，带 service_id
+  const box = document.querySelector('.emp-kb');
+  if (!box) return;
+  // 临时设置全局变量让 adminKbBind 复用（简化：直接调用并传参）
+  box.innerHTML = '<div class="empty">加载中…</div>';
+  // 这里复用 adminKbBind 的核心逻辑，但需要 service_id
+  // 为简化，直接内联一个带 service_id 的版本
+  const draw = async () => {
+    let kbs = [], svc = null;
+    try {
+      [kbs, svc] = await Promise.all([
+        api(`/api/admin/kb?service_id=${empCtxId}`),
+        api('/api/admin/ai-services').then((r) => r.find((x) => x.id === empCtxId)).catch(() => null),
+      ]);
+    } catch (e) { box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; return; }
+    const mounted = svc ? JSON.parse(svc.kb_ids || '[]') : [];
+    const statusLabel = { empty: '空', processing: '处理中', ready: '就绪', error: '出错' };
+    box.innerHTML = `
+      <div class="frm-hint" style="margin-bottom:8px">该员工的知识库插件。</div>
+      <div class="frm-row" style="margin-bottom:12px">
+        <button class="btn grow1" id="ekb-new">+ 新建知识库</button>
+        <button class="btn ghost grow1" id="ekb-import">导入92话术模板</button>
+      </div>
+      <div id="ekb-list"></div>`;
+    const kbMap = Object.fromEntries(kbs.map((k) => [k.id, k]));
+    document.getElementById('ekb-list').innerHTML = kbs.map((k) => `
+      <div style="border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:8px">
+        <div style="font-weight:700;font-size:14px">${esc(k.name)}
+          <span class="muted" style="font-weight:400;font-size:11px"> · ${statusLabel[k.status] || k.status}</span>
+        </div>
+        <div class="muted" style="font-size:11px;margin:4px 0">${k.doc_count} 文档 · ${k.chunk_count} 切片</div>
+        <div class="frm-row" style="margin-top:6px">
+          ${mounted.includes(k.id)
+            ? `<button class="btn ghost sm" data-eunmount="${k.id}">卸载</button>`
+            : `<button class="btn ghost sm" data-emount="${k.id}" ${k.status !== 'ready' ? 'disabled' : ''}>挂载</button>`}
+          <button class="btn ghost sm" data-eupload="${k.id}">上传文稿</button>
+          <button class="btn ghost sm" data-edelkb="${k.id}">删除</button>
+        </div>
+      </div>`).join('') || '<div class="empty">暂无知识库</div>';
+    document.getElementById('ekb-new').onclick = () => kbNewWizard(draw);
+    document.getElementById('ekb-import').onclick = async () => {
+      try {
+        const r = await api('/api/admin/kb/import-templates', { method: 'POST', body: JSON.stringify({ service_id: empCtxId }) });
+        toast(r.msg || '已开始导入'); draw();
+      } catch (e) { toast(e.message); }
+    };
+    box.querySelectorAll('[data-emount]').forEach((b) => b.onclick = async () => {
+      const ids = [...mounted, Number(b.dataset.emount)];
+      await api(`/api/admin/ai-services/${svc.id}`, { method: 'PUT', body: JSON.stringify({ kb_ids: ids }) });
+      toast('已挂载'); draw();
+    });
+    box.querySelectorAll('[data-eunmount]').forEach((b) => b.onclick = async () => {
+      const ids = mounted.filter((id) => id !== Number(b.dataset.eunmount));
+      await api(`/api/admin/ai-services/${svc.id}`, { method: 'PUT', body: JSON.stringify({ kb_ids: ids }) });
+      toast('已卸载'); draw();
+    });
+    box.querySelectorAll('[data-edelkb]').forEach((b) => b.onclick = () => {
+      Modal.confirm({ title: '删除知识库', body: '确定删除吗？', okText: '删除', onOk: async () => {
+        await api(`/api/admin/kb/${b.dataset.edelkb}`, { method: 'DELETE' });
+        toast('已删除'); draw();
+      }});
+    });
+    box.querySelectorAll('[data-eupload]').forEach((b) => b.onclick = () => kbUploadModal(Number(b.dataset.eupload), draw));
+  };
+  await draw();
+}
+async function empModelBind() {
+  const box = document.getElementById('emp-model');
+  if (!box) return;
+  box.innerHTML = `<div class="frm-hint">该员工使用的模型（从模型管理上架的模型中选择）。</div><div id="emp-model-roles"><div class="empty">加载中…</div></div>`;
+  // 复用 MODEL_ROLES 逻辑
+  try {
+    const [cat, svc] = await Promise.all([
+      api('/api/admin/models/catalog'),
+      api('/api/admin/ai-services').then((r) => r.find((x) => x.id === empCtxId)),
+    ]);
+    const models = Array.isArray(cat) ? cat : (cat.models || []);
+    const mcfg = svc ? JSON.parse(svc.model_config_json || '{}') : {};
+    const roleBox = document.getElementById('emp-model-roles');
+    roleBox.innerHTML = MODEL_ROLES.map((r) => {
+      const opts = models.filter((m) => m.category === r.catKey);
+      const cur = mcfg[r.key] || '';
+      return `<label class="fl">${r.label}</label>
+        <select id="empm-${r.key}">
+          <option value="">不指定</option>
+          ${opts.map((m) => `<option value="${esc(m.model_id)}" ${m.model_id === cur ? 'selected' : ''}>${esc(m.display_name || m.model_id)}</option>`).join('')}
+        </select>`;
+    }).join('') + `<button class="btn frm-sec" id="empm-save" style="margin-top:8px">保存</button><div class="miss" id="empm-msg"></div>`;
+    document.getElementById('empm-save').onclick = async () => {
+      const mcfg2 = {};
+      MODEL_ROLES.forEach((r) => {
+        const el = document.getElementById(`empm-${r.key}`);
+        if (el) mcfg2[r.key] = el.value;
+      });
+      try {
+        await api(`/api/admin/ai-services/${empCtxId}`, { method: 'PUT', body: JSON.stringify({ model_config_json: mcfg2 }) });
+        document.getElementById('empm-msg').textContent = '已保存';
+      } catch (e) { document.getElementById('empm-msg').textContent = e.message; }
+    };
+  } catch (e) { box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
+}
+async function empBasicBind() {
+  const box = document.getElementById('emp-basic');
+  if (!box) return;
+  try {
+    const svc = (await api('/api/admin/ai-services')).find((e) => e.id === empCtxId);
+    if (!svc) { box.innerHTML = '<div class="empty">员工不存在</div>'; return; }
+    box.innerHTML = `
+      <label class="fl">名称</label>
+      <input id="empb-name" value="${esc(svc.name)}" autocomplete="off">
+      <label class="fl">描述</label>
+      <input id="empb-desc" value="${esc(svc.description || '')}" autocomplete="off">
+      <label class="fl"><input type="checkbox" id="empb-active" ${svc.is_active ? 'checked' : ''} style="width:auto"> 启用</label>
+      <div class="frm-row" style="margin-top:12px">
+        <button class="btn grow1" id="empb-save">保存</button>
+        ${svc.id !== 1 ? '<button class="btn ghost" id="empb-del">删除员工</button>' : ''}
+      </div>
+      <div class="miss" id="empb-msg"></div>`;
+    document.getElementById('empb-save').onclick = async () => {
+      try {
+        await api(`/api/admin/ai-services/${svc.id}`, { method: 'PUT', body: JSON.stringify({
+          name: document.getElementById('empb-name').value.trim(),
+          description: document.getElementById('empb-desc').value.trim(),
+          is_active: document.getElementById('empb-active').checked,
+        })});
+        document.getElementById('empb-msg').textContent = '已保存';
+        loadEmps();
+      } catch (e) { document.getElementById('empb-msg').textContent = e.message; }
+    };
+    const del = document.getElementById('empb-del');
+    if (del) del.onclick = () => {
+      Modal.confirm({ title: '删除员工', body: `确定删除「${esc(svc.name)}」及其全部标签、模板、知识库吗？`, okText: '删除', onOk: async () => {
+        await api(`/api/admin/ai-services/${svc.id}`, { method: 'DELETE' });
+        Modal.close(); loadEmps(); toast('已删除');
+      }});
+    };
+  } catch (e) { box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
+}
+
 /* ---------------- 启动 ---------------- */
 (function init() {
   document.addEventListener('click', (e) => {
@@ -1644,6 +1918,9 @@ function kbUploadModal(kbId, onDone) {
   $('#backdrop').onclick = () => root.classList.remove('sidebar-open');
   const ab = $('#admin-btn');
   if (ab) ab.onclick = () => openAdminModal();
+  const enb = $('#emp-new');
+  if (enb) enb.onclick = () => openEmpNewModal();
+  loadEmps();
   // 移动端默认收起为抽屉
   if (window.matchMedia('(max-width:768px)').matches) root.classList.remove('sidebar-open');
   (async () => {
