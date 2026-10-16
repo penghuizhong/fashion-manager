@@ -47,7 +47,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.29',
+  version: '0.10.30',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -900,7 +900,7 @@ app.post('/api/admin/vision/test', async (req, res) => {
   } catch (e) { res.status(500).json({ error: `测试失败：${e.message}` }); }
 });
 // 拉取可用模型列表（不硬编码）：GET {base_url}/models
-app.get('/api/admin/models', async (req, res) => {
+app.get('/api/admin/models/available', async (req, res) => {
   const cfg = getAdminConfig(true);
   if (!cfg.api_key) return res.status(400).json({ error: '未配置 API Key' });
   try {
@@ -1505,7 +1505,7 @@ const MODEL_CATS = {
   visual: { name: '视觉模型', subs: { image_gen: '生图模型', video: '视频模型' } },
   embedding: { name: '向量模型', subs: { embedding: '向量模型' } },
 };
-app.get('/api/admin/models', (req, res) => {
+app.get(['/api/admin/models', '/api/admin/models/catalog'], (req, res) => {
   const { category } = req.query;
   let sql = 'SELECT id, model_id, display_name, description, category, subcategory, provider_name, base_url, input_price, output_price, is_active, created_at FROM models';
   const args = [];
