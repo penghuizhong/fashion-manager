@@ -47,7 +47,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.25',
+  version: '0.10.26',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -751,6 +751,23 @@ const ADMIN_DEFAULTS = {
   vision_model: '',
   api_key: '',
 };
+// 按分类取供应商：优先分类配置，留空则 fallback 全局
+function getProviderFor(category) {
+  const pv = db.prepare('SELECT * FROM model_providers WHERE category=?').get(category);
+  const global = getAdminConfig(true);
+  return {
+    base_url: (pv && pv.base_url) || global.base_url || '',
+    api_key: (pv && pv.api_key) || global.api_key || '',
+  };
+}
+// AI 调用统一入口：基础分类供应商优先，fallback 全局
+function getAIConfig() {
+  const cfg = getAdminConfig(true);
+  const pv = getProviderFor('basic');
+  if (pv.base_url) cfg.base_url = pv.base_url;
+  if (pv.api_key) cfg.api_key = pv.api_key;
+  return cfg;
+}
 function getAdminConfig(includeKey = false) {
   const rows = db.prepare('SELECT key, value FROM app_config').all();
   const m = Object.fromEntries(rows.map((r) => [r.key, r.value]));
@@ -1129,7 +1146,7 @@ function aiGuardrails(tpl, llmSlots, message) {
 }
 
 app.post('/api/ai/assist', aiRateLimit, aiMsgCheck, async (req, res) => {
-  const cfg = getAdminConfig(true);
+  const cfg = getAIConfig();
   if (!cfg.api_key) return res.status(400).json({ error: '未配置模型服务' });
   const message = String((req.body && req.body.message) || '').trim();
   if (!message) return res.status(400).json({ error: '消息不能为空' });
@@ -1242,7 +1259,7 @@ app.post('/api/ai/assist', aiRateLimit, aiMsgCheck, async (req, res) => {
 app.post('/api/ai/assist/select', aiRateLimit, aiMsgCheck, async (req, res) => {
   const { template_id, message } = req.body || {};
   if (!template_id || !message) return res.status(400).json({ error: '缺少参数' });
-  const cfg = getAdminConfig(true);
+  const cfg = getAIConfig();
   if (!cfg.api_key) return res.status(400).json({ error: '未配置 API Key' });
   const tpl = db.prepare('SELECT * FROM templates WHERE id=?').get(Number(template_id));
   if (!tpl) return res.status(404).json({ error: '模板不存在' });
@@ -1570,7 +1587,12 @@ app.post('/api/admin/models/pull', async (req, res) => {
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error((d.error && d.error.message) || `返回 ${r.status}`);
-    res.json({ ok: true, models: (d.data || []).map((x) => x.id).filter(Boolean) });
+    let models = (d.data || []).map((x) => x.id).filter(Boolean);
+    // 按分类过滤：embedding 只留 embedding 模型，visual 只留带 vision/image 关键词的
+    if (category === 'embedding') {
+      models = models.filter((id) => /embed/i.test(id));
+    }
+    res.json({ ok: true, models });
   } catch (e) { res.status(500).json({ error: `拉取失败：${e.message}` }); }
 });
 // 模型管理：连通测试（按分类走不同接口）
