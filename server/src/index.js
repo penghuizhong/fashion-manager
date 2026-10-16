@@ -53,7 +53,7 @@ function getServiceId(req) {
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.16.0',
+  version: '0.16.2',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1568,10 +1568,12 @@ app.get('/api/reviews/weekly/:week', (req, res) => {
 function logUsage(model, endpoint, tokensIn, tokensOut) {
   try {
     const pr = db.prepare('SELECT input_price, output_price FROM model_prices WHERE model_id=?').get(model);
-    const cost = pr ? (tokensIn / 1000 * pr.input_price + tokensOut / 1000 * pr.output_price) : 0;
+    // v0.16.2：人民币/1M tokens，输入输出成本单独统计
+    const costIn = pr ? (tokensIn / 1e6 * pr.input_price) : 0;
+    const costOut = pr ? (tokensOut / 1e6 * pr.output_price) : 0;
     db.prepare(
-      'INSERT INTO ai_usage_log (model, endpoint, tokens_in, tokens_out, cost) VALUES (?,?,?,?,?)'
-    ).run(model, endpoint, tokensIn || 0, tokensOut || 0, cost);
+      'INSERT INTO ai_usage_log (model, endpoint, tokens_in, tokens_out, cost, cost_in, cost_out) VALUES (?,?,?,?,?,?,?)'
+    ).run(model, endpoint, tokensIn || 0, tokensOut || 0, costIn + costOut, costIn, costOut);
   } catch (e) {}
 }
 // 模型价格 CRUD
@@ -1661,7 +1663,7 @@ app.put('/api/admin/models/:id', (req, res) => {
       db.prepare(
         `INSERT INTO model_prices (model_id, input_price, output_price, unit) VALUES (?,?,?,?)
          ON CONFLICT(model_id) DO UPDATE SET input_price=excluded.input_price, output_price=excluded.output_price, updated_at=datetime('now','localtime')`
-      ).run(m.model_id, Number(input_price) || 0, Number(output_price) || 0, 'USD/1M tokens');
+      ).run(m.model_id, Number(input_price) || 0, Number(output_price) || 0, 'CNY/1M tokens');
     }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1754,13 +1756,14 @@ app.get('/api/admin/models/stats', (req, res) => {
   const models = db.prepare('SELECT model_id, display_name, category, subcategory FROM models WHERE is_active=1').all();
   // 用量按 model 分组
   const usage = db.prepare(
-    `SELECT model, endpoint, COUNT(*) as calls, SUM(tokens_in) as tokens_in, SUM(tokens_out) as tokens_out, SUM(cost) as cost
+    `SELECT model, endpoint, COUNT(*) as calls, SUM(tokens_in) as tokens_in, SUM(tokens_out) as tokens_out,
+            SUM(cost) as cost, SUM(cost_in) as cost_in, SUM(cost_out) as cost_out
      FROM ai_usage_log WHERE created_at >= datetime('now', '-' || ? || ' days')
      GROUP BY model, endpoint`
   ).all(days);
   // 按分类汇总
   const byCat = {};
-  for (const cat of Object.keys(MODEL_CATS)) byCat[cat] = { calls: 0, cost: 0, models: [] };
+  for (const cat of Object.keys(MODEL_CATS)) byCat[cat] = { calls: 0, cost: 0, cost_in: 0, cost_out: 0, models: [] };
   const modelMap = Object.fromEntries(models.map((m) => [m.model_id, m]));
   for (const u of usage) {
     const m = modelMap[u.model];
@@ -1768,16 +1771,20 @@ app.get('/api/admin/models/stats', (req, res) => {
     if (!byCat[cat]) continue;
     byCat[cat].calls += u.calls;
     byCat[cat].cost += u.cost || 0;
+    byCat[cat].cost_in += u.cost_in || 0;
+    byCat[cat].cost_out += u.cost_out || 0;
   }
   // 每个模型的明细
   const byModel = models.map((m) => {
     const us = usage.filter((u) => u.model === m.model_id);
     const calls = us.reduce((a, b) => a + b.calls, 0);
     const cost = us.reduce((a, b) => a + (b.cost || 0), 0);
+    const cost_in = us.reduce((a, b) => a + (b.cost_in || 0), 0);
+    const cost_out = us.reduce((a, b) => a + (b.cost_out || 0), 0);
     const byEndpoint = us.map((u) => ({ endpoint: u.endpoint, calls: u.calls }));
-    return { ...m, calls, cost, by_endpoint: byEndpoint };
+    return { ...m, calls, cost, cost_in, cost_out, by_endpoint: byEndpoint };
   }).sort((a, b) => b.calls - a.calls);
-  const total = { calls: byModel.reduce((a, b) => a + b.calls, 0), cost: byModel.reduce((a, b) => a + b.cost, 0) };
+  const total = { calls: byModel.reduce((a, b) => a + b.calls, 0), cost: byModel.reduce((a, b) => a + b.cost, 0), cost_in: byModel.reduce((a, b) => a + b.cost_in, 0), cost_out: byModel.reduce((a, b) => a + b.cost_out, 0) };
   // 知识库维度：近30天各库被命中次数
   let byKb = [];
   try {
@@ -1994,17 +2001,16 @@ app.delete('/api/admin/ai-services/:id', (req, res) => {
   res.json({ ok: true });
 });
 app.put('/api/admin/ai-services/:id', (req, res) => {
-  const { name, description, kb_ids, model_config_json, tone_config_json, is_active, pinned, soul, tpl_retrieval } = req.body || {};
+  const { name, description, kb_ids, model_config_json, tone_config_json, pinned, soul, tpl_retrieval } = req.body || {};
   const cur = db.prepare('SELECT * FROM ai_services WHERE id=?').get(Number(req.params.id));
   if (!cur) return res.status(404).json({ error: '不存在' });
-  db.prepare(`UPDATE ai_services SET name=?, description=?, kb_ids=?, model_config_json=?, tone_config_json=?, is_active=?, pinned=?, soul=?, tpl_retrieval=?, updated_at=datetime('now','localtime') WHERE id=?`)
+  db.prepare(`UPDATE ai_services SET name=?, description=?, kb_ids=?, model_config_json=?, tone_config_json=?, pinned=?, soul=?, tpl_retrieval=?, updated_at=datetime('now','localtime') WHERE id=?`)
     .run(
       name !== undefined ? String(name) : cur.name,
       description !== undefined ? String(description) : cur.description,
       kb_ids !== undefined ? JSON.stringify(kb_ids) : cur.kb_ids,
       model_config_json !== undefined ? JSON.stringify(model_config_json) : cur.model_config_json,
       tone_config_json !== undefined ? JSON.stringify(tone_config_json) : cur.tone_config_json,
-      is_active !== undefined ? (is_active ? 1 : 0) : cur.is_active,
       pinned !== undefined ? Number(pinned) || 0 : cur.pinned,
       soul !== undefined ? String(soul) : cur.soul,
       tpl_retrieval !== undefined ? (tpl_retrieval ? 1 : 0) : cur.tpl_retrieval,
@@ -2048,6 +2054,15 @@ app.delete('/api/ai/chat/history', (req, res) => {
 });
 
 // ============ v0.16.0：员工简单聊天（soul + memory，不检索） ============
+// 关思考参数（借鉴 SoulChat providers.js）：
+// OpenRouter 系中转认 reasoning.enabled=false；qwen 系再加 enable_thinking=false。
+// token-plan 这类自定义中转按 custom 处理：两个都发，哪个生效用哪个。
+function thinkingOffParams(model) {
+  return {
+    reasoning: { enabled: false },
+    ...(/qwen/i.test(model || '') ? { enable_thinking: false } : {}),
+  };
+}
 // 通用 chat completion（temperature 可调，默认 0.7）
 async function chatComplete(messages, model, maxTokens, opts = {}) {
   const cfg = getAIConfig();
@@ -2058,7 +2073,7 @@ async function chatComplete(messages, model, maxTokens, opts = {}) {
     model, messages,
     temperature: opts.temperature !== undefined ? opts.temperature : 0.7,
     max_tokens: maxTokens || 800,
-    enable_thinking: false,
+    ...thinkingOffParams(model),
   };
   if (opts.jsonMode) body.response_format = { type: 'json_object' };
   const r = await fetch(url, {
@@ -2071,6 +2086,57 @@ async function chatComplete(messages, model, maxTokens, opts = {}) {
   if (!r.ok) throw new Error((d.error && d.error.message) || `模型服务返回 ${r.status}`);
   if (d.usage) logUsage(model, opts.usageTag || 'empChat', d.usage.prompt_tokens || 0, d.usage.completion_tokens || 0);
   return (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
+}
+// 流式 chat completion（借鉴 SoulChat llm.js chatStream）：每收到 delta 调 onToken，返回完整文本
+async function chatCompleteStream(messages, model, maxTokens, onToken) {
+  const cfg = getAIConfig();
+  if (!model) throw new Error('未配置模型');
+  if (!cfg.api_key) throw new Error('未配置 API Key');
+  const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
+    body: JSON.stringify({
+      model, messages, temperature: 0.7, max_tokens: maxTokens || 800,
+      stream: true, stream_options: { include_usage: true },
+      ...thinkingOffParams(model),
+    }),
+    signal: AbortSignal.timeout(120000),
+  });
+  if (!r.ok) { const t = await r.text().catch(() => ''); throw new Error(`模型服务返回 ${r.status}：${t.slice(0, 200)}`); }
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '', full = '', usage = null;
+  const handleLine = (line) => {
+    const t = line.trim();
+    if (!t.startsWith('data:')) return;
+    const data = t.slice(5).trim();
+    if (!data || data === '[DONE]') return;
+    try {
+      const json = JSON.parse(data);
+      if (json.usage) usage = json.usage;
+      const d = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
+      if (d) { full += d; onToken(d); }
+    } catch (e) { /* 忽略坏块 */ }
+  };
+  for (;;) {
+    let readResult;
+    try {
+      readResult = await Promise.race([
+        reader.read(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('STREAM_STALLED')), 25000)),
+      ]);
+    } catch (e) { try { reader.cancel(); } catch (e2) {} break; }
+    const { done, value } = readResult;
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop();
+    lines.forEach(handleLine);
+  }
+  if (buf.trim()) handleLine(buf);
+  if (usage) logUsage(model, 'empChat', usage.prompt_tokens || 0, usage.completion_tokens || 0);
+  return full;
 }
 // 员工模型解析：员工配置优先，回退全局
 function empModels(svc) {
@@ -2091,7 +2157,7 @@ function buildChatContext(svc) {
   if (svc.summary) parts.push('[此前对话摘要]\n' + svc.summary);
   return parts.join('\n\n');
 }
-// 简单对话：不检索，直接由 chat_model 回复
+// 简单对话（SSE 流式）：不检索，直接由 chat_model 回复，逐 token 推送
 app.post('/api/ai/chat', aiRateLimit, aiMsgCheck, async (req, res) => {
   const { service_id, message } = req.body || {};
   const sid = Number(service_id) || 0;
@@ -2106,14 +2172,27 @@ app.post('/api/ai/chat', aiRateLimit, aiMsgCheck, async (req, res) => {
   const messages = [{ role: 'system', content: buildChatContext(svc) }];
   hist.forEach((m) => messages.push({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }));
   messages.push({ role: 'user', content: msg });
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+  const send = (obj) => { try { res.write(`data: ${JSON.stringify(obj)}\n\n`); } catch (e) {} };
+  db.prepare('INSERT INTO chat_messages (service_id, role, content, meta_json) VALUES (?,?,?,?)').run(sid, 'user', msg.slice(0, 8000), '{}');
+  let full = '';
   try {
-    const text = (await chatComplete(messages, models.chat, 800)).trim();
-    db.prepare('INSERT INTO chat_messages (service_id, role, content, meta_json) VALUES (?,?,?,?)').run(sid, 'user', msg.slice(0, 8000), '{}');
-    db.prepare('INSERT INTO chat_messages (service_id, role, content, meta_json) VALUES (?,?,?,?)').run(sid, 'ai', text.slice(0, 8000), '{}');
-    res.json({ ok: true, text });
+    full = await chatCompleteStream(messages, models.chat, 800, (tok) => send({ token: tok }));
+    if (!full.trim()) throw new Error('模型返回为空');
+    db.prepare('INSERT INTO chat_messages (service_id, role, content, meta_json) VALUES (?,?,?,?)').run(sid, 'ai', full.slice(0, 8000), '{}');
+    send({ done: true });
+    res.end();
     // 后台异步：大总管分析 → 按需记忆 → 按需摘要（不阻塞回复）
-    setImmediate(() => orchestrateRound(sid, msg, text).catch(() => {}));
-  } catch (e) { res.status(500).json({ error: e.message }); }
+    setImmediate(() => orchestrateRound(sid, msg, full).catch(() => {}));
+  } catch (e) {
+    if (full.trim()) db.prepare('INSERT INTO chat_messages (service_id, role, content, meta_json) VALUES (?,?,?,?)').run(sid, 'ai', full.slice(0, 8000), '{}');
+    send({ error: e.message });
+    res.end();
+  }
 });
 // 会话大总管：每轮分析用户意图，只看最近一轮（token 成本最小），决定是否记忆
 async function orchestrateRound(sid, userMsg, aiReply) {
