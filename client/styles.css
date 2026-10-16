@@ -66,10 +66,13 @@ svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;str
   background:none;color:var(--muted);display:flex;align-items:center;justify-content:center}
 .collapse-btn:hover{background:var(--surface2);color:var(--text)}
 .sidenav{display:flex;flex-direction:column;gap:4px;flex:1}
-.navitem{display:flex;align-items:center;gap:10px;padding:10px 12px;border:none;border-radius:10px;
-  background:none;color:var(--muted);font-size:14px;text-align:left;width:100%}
+/* ChatGPT 风格侧边栏：无胶囊背景，纯文字+图标 */
+.navitem{display:flex;align-items:center;gap:10px;padding:9px 12px;border:none;border-radius:8px;
+  background:none;color:var(--text);font-size:14px;text-align:left;width:100%}
 .navitem:hover{background:var(--surface2)}
-.navitem.on{background:var(--surface2);color:var(--text);font-weight:700}
+.navitem.on{background:var(--surface2);font-weight:600}
+.navitem .ic{color:var(--muted)}
+.navitem.on .ic{color:var(--text)}
 .navitem .navtag{margin-left:auto;font-size:10px;border:1px solid var(--border);border-radius:12px;
   padding:0 7px;color:var(--muted);font-weight:400}
 .sidebar-footer{font-size:11px;color:var(--muted);padding:10px 6px 2px;border-top:1px solid var(--border);
@@ -314,11 +317,18 @@ mark.slotval{background:rgba(250,200,0,.35);color:inherit;border-radius:3px;padd
 .typing-dots span:nth-child(2){animation-delay:.2s}
 .typing-dots span:nth-child(3){animation-delay:.4s}
 @keyframes tdot{0%,60%,100%{opacity:.25}30%{opacity:1}}
-.emp-section{padding:0 12px;margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:12px}
-.emp-item{width:100%;text-align:left;display:flex;align-items:center;gap:10px;padding:10px 12px;border:none;background:none;border-radius:8px;cursor:pointer;font-size:14px;color:var(--text)}
+.side-divider{height:1px;background:var(--border);margin:8px 12px}
+.emp-section{padding:4px 0;flex:1;overflow-y:auto;min-height:0}
+.emp-new{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;border-radius:8px;
+  background:none;color:var(--text);font-size:14px;cursor:pointer;text-align:left}
+.emp-new:hover{background:var(--surface2)}
+.emp-new .ic{color:var(--muted)}
+.emp-item{width:100%;text-align:left;display:flex;align-items:center;gap:10px;padding:9px 12px;border:none;
+  background:none;border-radius:8px;cursor:pointer;font-size:14px;color:var(--text)}
 .emp-item:hover{background:var(--surface2)}
 .emp-item.on{background:var(--surface2);font-weight:600}
-.emp-item .ic{width:20px;height:20px;flex-shrink:0}
+.emp-item .ic{color:var(--muted)}
+.emp-item.on .ic{color:var(--text)}
 /* 禁止下拉刷新 */
 html,body{overscroll-behavior-y:none}
 body{touch-action:pan-x pan-y}
