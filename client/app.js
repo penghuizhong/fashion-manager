@@ -1025,76 +1025,47 @@ function adminPriceHTML() {
 }
 function adminModelHTML() {
   return `<div id="admin-model-form">
-    <label class="fl">API Key <span class="muted">（已设置时留空不覆盖）</span></label>
-    <input type="password" id="adm-key" placeholder="未设置，请输入" autocomplete="off">
-    <label class="fl">Base URL</label>
-    <input id="adm-base" autocomplete="off">
-    <div class="btnrow frm-row">
-      <button class="btn ghost" id="adm-models">刷新模型列表</button>
-      <button class="btn ghost" id="adm-test">测试连通性</button>
-    </div>
-    <div class="frm-hint" id="adm-models-msg"></div>
-    <label class="fl">对话模型 <span class="muted">（话术选择用）</span></label>
-    <select id="adm-chat"><option value="">请先刷新模型列表</option></select>
-    <label class="fl">后台模型 <span class="muted">（关键词理解用，可选便宜快的）</span></label>
-    <select id="adm-backend"><option value="">请先刷新模型列表</option></select>
-    <div class="frm-sec" style="font-weight:700;margin-top:4px">视觉模型（识图）</div>
-    <label class="fl">供应商</label>
-    <select id="adm-vision-provider">
-      <option value="openrouter">OpenRouter（默认）</option>
-      <option value="custom">自定义</option>
-    </select>
-    <label class="fl">Vision API Key <span class="muted">（已设置时留空不覆盖）</span></label>
-    <input id="adm-vision-key" type="password" autocomplete="off" placeholder="已设置（留空不修改）">
-    <label class="fl">Vision Base URL</label>
-    <input id="adm-vision-url" autocomplete="off" placeholder="如 https://openrouter.ai/api/v1">
-    <div class="frm-row">
-      <button class="btn ghost grow1" id="adm-vision-pull">拉取模型列表</button>
-      <button class="btn ghost grow1" id="adm-vision-test">测试连通性</button>
-    </div>
-    <label class="fl">视觉模型</label>
-    <select id="adm-vision"><option value="">请先拉取模型列表</option></select>
-    <div class="frm-sec" style="font-weight:700;margin-top:4px">向量模型（Embedding）</div>
-    <label class="fl">Embedding API Key <span class="muted">（已设置时留空不覆盖）</span></label>
-    <input id="adm-emb-key" type="password" autocomplete="off" placeholder="已设置（留空不修改）">
-    <label class="fl">Embedding Base URL</label>
-    <input id="adm-emb-url" autocomplete="off" placeholder="如 https://dashscope.aliyuncs.com/compatible-mode/v1">
-    <div class="frm-row">
-      <button class="btn ghost grow1" id="adm-emb-pull">拉取模型列表</button>
-      <button class="btn ghost grow1" id="adm-emb-test">测试连通性</button>
-    </div>
-    <label class="fl">向量模型</label>
-    <select id="adm-emb"><option value="">请先拉取模型列表</option></select>
+    <div class="frm-hint" style="margin-bottom:8px">从「模型管理」上架的模型中选择各用途使用的模型。<br>供应商配置请到「模型管理」→ 分类供应商。</div>
+    <div id="adm-roles"><div class="empty">加载中…</div></div>
     <button class="btn frm-sec" id="adm-save">保存</button>
     <div class="miss" id="adm-msg"></div>
   </div>`;
 }
-let adminModelList = [];
+// 用途 → 子分类映射
+const MODEL_ROLES = [
+  { key: 'chat_model', label: '对话模型', hint: '话术选择用', sub: 'chat', cat: '基础模型' },
+  { key: 'backend_model', label: '后台模型', hint: '关键词理解用，可选便宜快的', sub: 'backend', cat: '基础模型' },
+  { key: 'vision_model', label: '识图模型', hint: '看图理解用', sub: 'vision_understand', cat: '基础模型' },
+  { key: 'image_model', label: '生图模型', hint: '生成图片用', sub: 'image_gen', cat: '视觉模型' },
+  { key: 'embedding_model', label: '向量模型', hint: '文本向量化用', sub: 'embedding', cat: '向量模型' },
+];
 async function adminLoadModels() {
-  const msg = document.getElementById('adm-models-msg');
-  const btn = document.getElementById('adm-models');
-  if (msg) msg.textContent = '拉取中…';
-  if (btn) btn.disabled = true;
+  const box = document.getElementById('adm-roles');
+  if (!box) return;
   try {
-    const r = await api('/api/admin/models');
-    adminModelList = r.models || [];
-    if (msg) msg.textContent = `共 ${adminModelList.length} 个可用模型`;
-    const fill = (id, val) => {
-      const sel = document.getElementById(id);
-      if (!sel) return;
-      sel.innerHTML = '<option value="">不指定</option>' + adminModelList.map((m) =>
-        `<option value="${esc(m)}" ${m === val ? 'selected' : ''}>${esc(m)}</option>`).join('');
-    };
-    const cfg = await api('/api/admin/config').catch(() => ({}));
-    fill('adm-chat', cfg.chat_model || '');
-    fill('adm-backend', cfg.backend_model || '');
-    fill('adm-vision', cfg.vision_model || '');
+    const [cat, cfg] = await Promise.all([
+      api('/api/admin/models/catalog'),
+      api('/api/admin/config').catch(() => ({})),
+    ]);
+    const models = cat.models || [];
+    let lastCat = '';
+    box.innerHTML = MODEL_ROLES.map((r) => {
+      const opts = models.filter((m) => m.subcategory === r.sub);
+      const cur = cfg[r.key] || '';
+      const head = r.cat !== lastCat ? `<div class="frm-sec" style="font-weight:700;margin-top:4px">${r.cat}</div>` : '';
+      lastCat = r.cat;
+      return `${head}
+        <label class="fl">${r.label} <span class="muted">（${r.hint}）</span></label>
+        <select id="adm-${r.key}" ${opts.length ? '' : 'disabled'}>
+          <option value="">${opts.length ? '不指定' : '该分类暂无上架模型'}</option>
+          ${opts.map((m) => `<option value="${esc(m.model_id)}" ${m.model_id === cur ? 'selected' : ''}>${esc(m.display_name || m.model_id)}</option>`).join('')}
+        </select>`;
+    }).join('');
   } catch (e) {
-    if (msg) msg.textContent = '拉取失败：' + e.message;
-  } finally {
-    if (btn) btn.disabled = false;
+    box.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`;
   }
 }
+
 function adminTagsHTML() {
   return `<div id="admin-tags">
     <div class="frm-row">
@@ -1492,120 +1463,17 @@ async function bindAdmin() {
     if (adminTab === 'stats') { adminStatsBind(); return; }
     return;
   }
-  try {
-    const c = await api('/api/admin/config');
-    const g = (id) => document.getElementById(id);
-    if (g('adm-base')) g('adm-base').value = c.base_url || '';
-    if (g('adm-emb-url')) g('adm-emb-url').value = c.embedding_base_url || '';
-    if (g('adm-emb-key')) g('adm-emb-key').placeholder = c.has_embedding_key ? '已设置（留空不修改）' : '未设置，请输入';
-    if (g('adm-vision-provider')) g('adm-vision-provider').value = c.vision_provider || 'openrouter';
-    if (g('adm-vision-url')) g('adm-vision-url').value = c.vision_base_url || '';
-    if (g('adm-vision-key')) g('adm-vision-key').placeholder = c.has_vision_key ? '已设置（留空不修改）' : '未设置，请输入';
-    if (g('adm-key')) g('adm-key').placeholder = c.has_key ? '已设置（留空不修改）' : '未设置，请输入';
-    // 下拉框：先填入当前值占位，点"刷新模型列表"后载入完整列表
-    for (const [id, key] of [['adm-chat', 'chat_model'], ['adm-backend', 'backend_model'], ['adm-vision', 'vision_model'], ['adm-emb', 'embedding_model']]) {
-      const sel = g(id);
-      if (sel && c[key]) sel.innerHTML = `<option value="${esc(c[key])}" selected>${esc(c[key])}（当前）</option>`;
-    }
-  } catch (e) { /* 提交时再报错 */ }
-  const modelsBtn = document.getElementById('adm-models');
-  if (modelsBtn) modelsBtn.onclick = () => adminLoadModels();
-  // 任务25: embedding 拉模型/测试
-  const embPull = document.getElementById('adm-emb-pull');
-  if (embPull) embPull.onclick = async () => {
-    const msg = document.getElementById('adm-models-msg');
-    const base_url = document.getElementById('adm-emb-url').value.trim();
-    const api_key = document.getElementById('adm-emb-key').value.trim();
-    if (msg) msg.textContent = '拉取中…';
-    embPull.disabled = true;
-    try {
-      const d = await api('/api/admin/embedding/models', { method: 'POST', body: JSON.stringify({ base_url, api_key }) });
-      const sel = document.getElementById('adm-emb');
-      sel.innerHTML = d.models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join('') || '<option value="">无可用模型</option>';
-      if (msg) msg.textContent = `拉取到 ${d.models.length} 个模型`;
-    } catch (e) { if (msg) msg.textContent = e.message; }
-    finally { embPull.disabled = false; }
-  };
-  const embTest = document.getElementById('adm-emb-test');
-  if (embTest) embTest.onclick = async () => {
-    const msg = document.getElementById('adm-models-msg');
-    const base_url = document.getElementById('adm-emb-url').value.trim();
-    const api_key = document.getElementById('adm-emb-key').value.trim();
-    const model = document.getElementById('adm-emb').value;
-    if (msg) msg.textContent = '测试中…';
-    embTest.disabled = true;
-    try {
-      const d = await api('/api/admin/embedding/test', { method: 'POST', body: JSON.stringify({ base_url, api_key, model }) });
-      if (msg) msg.textContent = d.msg;
-    } catch (e) { if (msg) msg.textContent = e.message; }
-    finally { embTest.disabled = false; }
-  };
-  // 任务24: vision 拉模型/测试
-  const visPull = document.getElementById('adm-vision-pull');
-  if (visPull) visPull.onclick = async () => {
-    const msg = document.getElementById('adm-models-msg');
-    const base_url = document.getElementById('adm-vision-url').value.trim();
-    const api_key = document.getElementById('adm-vision-key').value.trim();
-    if (msg) msg.textContent = '拉取中…';
-    visPull.disabled = true;
-    try {
-      const d = await api('/api/admin/vision/models', { method: 'POST', body: JSON.stringify({ base_url, api_key }) });
-      const sel = document.getElementById('adm-vision');
-      sel.innerHTML = d.models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join('') || '<option value="">无可用模型</option>';
-      if (msg) msg.textContent = `拉取到 ${d.models.length} 个模型`;
-    } catch (e) { if (msg) msg.textContent = e.message; }
-    finally { visPull.disabled = false; }
-  };
-  const visTest = document.getElementById('adm-vision-test');
-  if (visTest) visTest.onclick = async () => {
-    const msg = document.getElementById('adm-models-msg');
-    const base_url = document.getElementById('adm-vision-url').value.trim();
-    const api_key = document.getElementById('adm-vision-key').value.trim();
-    const model = document.getElementById('adm-vision').value;
-    if (msg) msg.textContent = '测试中…';
-    visTest.disabled = true;
-    try {
-      const d = await api('/api/admin/vision/test', { method: 'POST', body: JSON.stringify({ base_url, api_key, model }) });
-      if (msg) msg.textContent = d.msg;
-    } catch (e) { if (msg) msg.textContent = e.message; }
-    finally { visTest.disabled = false; }
-  };
-  const testBtn = document.getElementById('adm-test');
-  if (testBtn) testBtn.onclick = async () => {
-    const msg = document.getElementById('adm-models-msg');
-    const model = document.getElementById('adm-chat').value;
-    if (msg) msg.textContent = '测试中…';
-    testBtn.disabled = true;
-    try {
-      const r = await api('/api/admin/test', { method: 'POST', body: JSON.stringify({ model }) });
-      if (msg) { msg.style.color = '#16a34a'; msg.textContent = `连通正常（${r.model}）：${r.reply || '无返回'}`; }
-    } catch (e) {
-      if (msg) { msg.style.color = ''; msg.textContent = '测试失败：' + e.message; }
-    } finally {
-      testBtn.disabled = false;
-      setTimeout(() => { if (msg) msg.style.color = ''; }, 5000);
-    }
-  };
+  await adminLoadModels();
   const save = document.getElementById('adm-save');
   if (save) save.onclick = async () => {
-    const g = (id) => document.getElementById(id).value.trim();
+    const gv = (id) => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
     const msg = document.getElementById('adm-msg');
     save.disabled = true;
     try {
-      await api('/api/admin/config', { method: 'PUT', body: JSON.stringify({
-        api_key: g('adm-key'), base_url: g('adm-base'), chat_model: g('adm-chat'),
-        backend_model: g('adm-backend'),
-        embedding_base_url: g('adm-emb-url') && g('adm-emb-url').value.trim(),
-        embedding_api_key: g('adm-emb-key') && g('adm-emb-key').value.trim(),
-        embedding_model: g('adm-emb') && g('adm-emb').value,
-        vision_provider: g('adm-vision-provider') && g('adm-vision-provider').value,
-        vision_base_url: g('adm-vision-url') && g('adm-vision-url').value.trim(),
-        vision_api_key: g('adm-vision-key') && g('adm-vision-key').value.trim(),
-        vision_model: g('adm-vision') && g('adm-vision').value,
-      }) });
+      const body = {};
+      MODEL_ROLES.forEach((r) => { body[r.key] = gv(`adm-${r.key}`); });
+      await api('/api/admin/config', { method: 'PUT', body: JSON.stringify(body) });
       msg.style.color = '#16a34a'; msg.textContent = '已保存';
-      const k = document.getElementById('adm-key');
-      if (k) { k.value = ''; k.placeholder = '已设置（留空不修改）'; }
     } catch (e) { msg.style.color = ''; msg.textContent = e.message; }
     finally { save.disabled = false; }
   };
