@@ -278,5 +278,65 @@ db.exec(`CREATE TABLE IF NOT EXISTS review_log (
   created_at TEXT DEFAULT (datetime('now','localtime'))
 )`);
 
+// 知识库插件相关表
+db.exec(`CREATE TABLE IF NOT EXISTS knowledge_bases (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  scenario TEXT DEFAULT '',
+  status TEXT DEFAULT 'empty' CHECK(status IN ('empty','processing','ready','error')),
+  config_json TEXT DEFAULT '{}',
+  version INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  updated_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS kb_documents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+  filename TEXT NOT NULL,
+  file_type TEXT DEFAULT 'txt',
+  raw_text TEXT DEFAULT '',
+  char_count INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'uploaded' CHECK(status IN ('uploaded','parsed','chunked','embedded','error')),
+  error_msg TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS kb_chunks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kb_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+  doc_id INTEGER NOT NULL REFERENCES kb_documents(id) ON DELETE CASCADE,
+  chunk_index INTEGER NOT NULL,
+  chunk_text TEXT NOT NULL,
+  embedding TEXT DEFAULT '[]',
+  metadata_json TEXT DEFAULT '{}',
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_chunks_kb ON kb_chunks(kb_id)`);
+db.exec(`CREATE TABLE IF NOT EXISTS ai_services (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL DEFAULT '默认客服',
+  description TEXT DEFAULT '',
+  kb_ids TEXT DEFAULT '[]',
+  model_config_json TEXT DEFAULT '{}',
+  tone_config_json TEXT DEFAULT '{}',
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  updated_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+// 默认 AI 客服实例（幂等）
+try {
+  const c = db.prepare('SELECT COUNT(*) as n FROM ai_services').get().n;
+  if (!c) db.prepare(`INSERT INTO ai_services (name, description) VALUES ('默认客服','初始 AI 客服实例')`).run();
+} catch (e) {}
+
+db.exec(`CREATE TABLE IF NOT EXISTS kb_usage_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kb_id INTEGER NOT NULL,
+  kb_name TEXT DEFAULT '',
+  hits INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_usage_kb ON kb_usage_log(kb_id)`);
+
 export default db;
 export const now = () => new Date().toISOString();
