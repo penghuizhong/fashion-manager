@@ -914,7 +914,15 @@ function viewStub(title, desc) {
 async function viewAi() {
   setNav('ai');
   document.querySelector('.main').classList.add('chat-mode');
-  const emp = empList.find((e) => e.id === curEmpId) || { name: 'AI 客服' };
+  if (!empList.length) { try { await loadEmps(); } catch (e) {} }
+  const emp = empList.find((e) => e.id === curEmpId) || empList[0];
+  if (!emp) {
+    document.querySelector('.main').classList.remove('chat-mode');
+    app.innerHTML = `<div class="page"><div class="empty">还没有 AI 员工，先去新建一个吧。<br><br><button class="btn" id="ai-empty-new">新建AI员工</button></div></div>`;
+    document.getElementById('ai-empty-new').onclick = () => openEmpNewModal();
+    return;
+  }
+  curEmpId = emp.id;
   app.innerHTML = `
   <div class="chat-wrap">
     <div class="chat-head">
@@ -1734,27 +1742,127 @@ function kbUploadModal(kbId, onDone) {
 
 /* ---------------- AI 员工 ---------------- */
 let empList = [];
-let curEmpId = 1;
+let curEmpId = null; // v0.15.0：不再硬编码默认员工，全部读后端数据
 async function loadEmps() {
   const box = document.getElementById('emp-list');
   if (!box) return;
   try {
+    // 后端已按 pinned DESC, id ASC 排序：置顶的排在员工区最上（制版台 tab 下方）
     empList = await api('/api/admin/ai-services');
+    if (!empList.some((e) => e.id === curEmpId)) curEmpId = empList.length ? empList[0].id : null;
+    if (!empList.length) {
+      box.innerHTML = `<div class="emp-empty">暂无 AI 员工<br><button class="btn ghost sm" id="emp-empty-new">去新建一个</button></div>`;
+      const nb = document.getElementById('emp-empty-new');
+      if (nb) nb.onclick = () => openEmpNewModal();
+      return;
+    }
     box.innerHTML = empList.map((e) => `
-      <button class="emp-item ${e.id === curEmpId ? 'on' : ''}" data-emp="${e.id}">
+      <div class="emp-item ${e.id === curEmpId ? 'on' : ''}" data-emp="${e.id}" role="button" tabindex="0" title="${esc(e.name)}">
         <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6 8-6s8 2 8 6"/></svg>
-        <span>${esc(e.name)}</span>
-      </button>`).join('');
+        <span class="emp-name">${esc(e.name)}</span>
+        ${Number(e.pinned) > 0 ? '<svg class="ic pin-ic" viewBox="0 0 24 24"><path d="M9 4h6l-1 7 3 3v2H7v-2l3-3z"/><path d="M12 16v5"/></svg>' : ''}
+        <button class="emp-menu-btn" data-menu="${e.id}" aria-label="更多操作" title="更多操作">
+          <svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="1.7" fill="currentColor" stroke="none"/></svg>
+        </button>
+      </div>`).join('');
+    let lpTimer = null, lpFired = false;
     box.querySelectorAll('[data-emp]').forEach((b) => {
-      b.onclick = () => {
-        curEmpId = Number(b.dataset.emp);
+      const id = Number(b.dataset.emp);
+      const openChat = () => {
+        curEmpId = id;
         chatHistory = [];
         loadEmps();
         location.hash = '#/ai';
         viewAi();
       };
+      b.addEventListener('click', (ev) => {
+        if (lpFired) { lpFired = false; return; } // 长按松手后不进聊天
+        if (ev.target.closest('.emp-menu-btn')) return;
+        openChat();
+      });
+      b.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openChat(); }
+      });
+      // 手机端长按 500ms 显示 ⋮（桌面端靠 hover）
+      b.addEventListener('touchstart', () => {
+        lpFired = false;
+        clearTimeout(lpTimer);
+        lpTimer = setTimeout(() => { lpFired = true; b.classList.add('show-menu'); }, 500);
+      }, { passive: true });
+      b.addEventListener('touchmove', () => clearTimeout(lpTimer), { passive: true });
+      b.addEventListener('touchend', () => clearTimeout(lpTimer), { passive: true });
+      b.addEventListener('touchcancel', () => clearTimeout(lpTimer), { passive: true });
+    });
+    box.querySelectorAll('[data-menu]').forEach((mb) => {
+      mb.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const it = mb.closest('.emp-item');
+        if (it) it.classList.remove('show-menu');
+        const e = empList.find((x) => x.id === Number(mb.dataset.menu));
+        if (e) openEmpMenu(e);
+      });
     });
   } catch (e) { box.innerHTML = ''; }
+}
+/* 员工 ⋮ 操作面板：重命名 / 置顶 / 删除 */
+function openEmpMenu(e) {
+  const pinned = Number(e.pinned) > 0;
+  Modal.open({ title: e.name, body: `
+    <div class="act-list">
+      <button class="act-item" id="em-rename">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 20l4-1 11-11a2.1 2.1 0 00-3-3L5 16l-1 4z"/></svg>
+        <span>重命名</span>
+      </button>
+      <button class="act-item" id="em-pin">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M9 4h6l-1 7 3 3v2H7v-2l3-3z"/><path d="M12 16v5"/></svg>
+        <span>${pinned ? '取消置顶' : '置顶'}</span>
+      </button>
+      <button class="act-item danger" id="em-del">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-9 0l1 13a1 1 0 001 1h6a1 1 0 001-1l1-13"/></svg>
+        <span>删除</span>
+      </button>
+    </div>` });
+  document.getElementById('em-rename').onclick = () => openEmpRename(e);
+  document.getElementById('em-pin').onclick = async () => {
+    try {
+      await api(`/api/admin/ai-services/${e.id}`, { method: 'PUT', body: JSON.stringify({ pinned: pinned ? 0 : Date.now() }) });
+      Modal.close(); toast(pinned ? '已取消置顶' : '已置顶'); loadEmps();
+    } catch (err) { toast(err.message); }
+  };
+  document.getElementById('em-del').onclick = () => {
+    Modal.confirm({
+      title: '删除AI员工',
+      body: `确定删除「${esc(e.name)}」吗？它的聊天记录、知识库和话术模板会一并删除，不可恢复。`,
+      okText: '删除',
+      onOk: async () => {
+        try {
+          await api(`/api/admin/ai-services/${e.id}`, { method: 'DELETE' });
+          if (curEmpId === e.id) curEmpId = null;
+          toast('已删除'); loadEmps();
+        } catch (err) { toast(err.message); }
+      }
+    });
+  };
+}
+function openEmpRename(e) {
+  Modal.open({ title: '重命名', body: `
+    <label class="fl">名称</label>
+    <input id="emr-name" value="${esc(e.name)}" autocomplete="off" maxlength="24">
+    <div class="modal-foot">
+      <button class="btn ghost" id="emr-cancel">取消</button>
+      <button class="btn" id="emr-ok">保存</button>
+    </div>` });
+  document.getElementById('emr-cancel').onclick = () => Modal.close();
+  const inp = document.getElementById('emr-name');
+  if (inp) { inp.focus(); inp.select(); }
+  document.getElementById('emr-ok').onclick = async () => {
+    const name = document.getElementById('emr-name').value.trim();
+    if (!name) return toast('请填写名称');
+    try {
+      await api(`/api/admin/ai-services/${e.id}`, { method: 'PUT', body: JSON.stringify({ name }) });
+      Modal.close(); toast('已重命名'); loadEmps();
+    } catch (err) { toast(err.message); }
+  };
 }
 function openEmpNewModal() {
   Modal.open({ title: '新建AI员工', body: `
