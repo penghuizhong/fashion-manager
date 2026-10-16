@@ -76,7 +76,7 @@ svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;str
 .navitem .navtag{margin-left:auto;font-size:10px;border:1px solid var(--border);border-radius:12px;
   padding:0 7px;color:var(--muted);font-weight:400}
 .sidebar-footer{font-size:11px;color:var(--muted);padding:10px 6px 2px;border-top:1px solid var(--border);
-display:flex;align-items:center;justify-content:space-between}
+display:flex;align-items:center;justify-content:space-between;margin-top:auto}
 #admin-btn,#theme-btn{background:none;border:none;color:var(--muted);padding:5px;border-radius:8px;display:flex;cursor:pointer;-webkit-appearance:none;appearance:none}
 #admin-btn:hover,#theme-btn:hover{color:var(--text);background:var(--surface2)}
 #admin-btn .ic,#theme-btn .ic{width:16px;height:16px}
@@ -317,7 +317,6 @@ mark.slotval{background:rgba(250,200,0,.35);color:inherit;border-radius:3px;padd
 .typing-dots span:nth-child(2){animation-delay:.2s}
 .typing-dots span:nth-child(3){animation-delay:.4s}
 @keyframes tdot{0%,60%,100%{opacity:.25}30%{opacity:1}}
-.side-divider{height:1px;background:var(--border);margin:6px 12px}
 .emp-section{padding:2px 0;flex:0 0 auto}
 .sidenav{flex:0 0 auto}
 .emp-new{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;border-radius:8px;
