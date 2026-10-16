@@ -332,9 +332,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS chat_messages (
   service_id INTEGER NOT NULL,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
+  meta_json TEXT DEFAULT '{}',
   created_at TEXT DEFAULT (datetime('now','localtime'))
 )`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_chat_messages_service ON chat_messages(service_id, id)`);
+/* v0.15.1：老库幂等加 meta_json 列（存图片路径、话术/知识库引用） */
+try { db.exec(`ALTER TABLE chat_messages ADD COLUMN meta_json TEXT DEFAULT '{}'`); } catch (e) {}
 
 db.exec(`CREATE TABLE IF NOT EXISTS kb_usage_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

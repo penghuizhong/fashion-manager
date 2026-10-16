@@ -53,7 +53,7 @@ function getServiceId(req) {
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.15.0',
+  version: '0.15.1',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -2014,15 +2014,30 @@ app.put('/api/admin/ai-services/:id', (req, res) => {
 // ---------- 员工独立聊天记录 ----------
 app.get('/api/ai/chat/history', (req, res) => {
   const sid = Number(req.query.service_id) || 0;
-  const rows = db.prepare('SELECT id, role, content, created_at FROM chat_messages WHERE service_id=? ORDER BY id ASC LIMIT 200').all(sid);
+  // v0.15.1：取最近 200 条（之前 ASC LIMIT 200 取的是最早的，新消息看不到）
+  const rows = db.prepare(`SELECT id, role, content, created_at, meta_json FROM (
+    SELECT id, role, content, created_at, meta_json FROM chat_messages WHERE service_id=? ORDER BY id DESC LIMIT 200
+  ) ORDER BY id ASC`).all(sid);
   res.json(rows);
 });
 app.post('/api/ai/chat/messages', (req, res) => {
-  const { service_id, role, content } = req.body || {};
+  const { service_id, role, content, meta } = req.body || {};
   const sid = Number(service_id) || 0;
   if (!['user', 'ai'].includes(role) || !content) return res.status(400).json({ error: '参数错误' });
-  const r = db.prepare('INSERT INTO chat_messages (service_id, role, content) VALUES (?,?,?)').run(sid, role, String(content).slice(0, 8000));
+  const r = db.prepare('INSERT INTO chat_messages (service_id, role, content, meta_json) VALUES (?,?,?,?)')
+    .run(sid, role, String(content).slice(0, 8000), JSON.stringify(meta || {}));
   res.json({ ok: true, id: r.lastInsertRowid });
+});
+// 聊天图片上传（v0.15.1）：base64 存 uploads，聊天记录里只存路径
+app.post('/api/ai/chat/image', (req, res) => {
+  const { service_id, dataUrl } = req.body || {};
+  const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/.exec(dataUrl || '');
+  if (!m) return res.status(400).json({ error: '图片格式不支持（仅 jpeg/png/webp）' });
+  const buf = Buffer.from(m[2], 'base64');
+  if (buf.length > 8 * 1024 * 1024) return res.status(400).json({ error: '图片超过 8MB' });
+  const fname = `chat_${Number(service_id) || 0}_${Date.now()}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
+  fs.writeFileSync(path.join(DATA_DIR, 'uploads', fname), buf);
+  res.json({ ok: true, path: `/uploads/${fname}` });
 });
 app.delete('/api/ai/chat/history', (req, res) => {
   const sid = Number(req.query.service_id) || 0;
