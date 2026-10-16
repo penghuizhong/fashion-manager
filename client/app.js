@@ -1004,7 +1004,9 @@ function adminBodyHTML() {
     <button class="atab ${adminTab === 'tags' ? 'on' : ''}" data-atab="tags">标签词表</button>
     <button class="atab ${adminTab === 'tpl' ? 'on' : ''}" data-atab="tpl">模板台</button>
     <button class="atab ${adminTab === 'price' ? 'on' : ''}" data-atab="price">模型价格</button>
-  </div><div id="admin-pane">${adminTab === 'model' ? adminModelHTML() : adminTab === 'tags' ? adminTagsHTML() : adminTab === 'price' ? adminPriceHTML() : '<div id="admin-tpl"><div class="empty">加载中…</div></div>'}</div>`;
+    <button class="atab ${adminTab === 'mgmt' ? 'on' : ''}" data-atab="mgmt">模型管理</button>
+    <button class="atab ${adminTab === 'stats' ? 'on' : ''}" data-atab="stats">统计</button>
+  </div><div id="admin-pane">${adminTab === 'model' ? adminModelHTML() : adminTab === 'tags' ? adminTagsHTML() : adminTab === 'price' ? adminPriceHTML() : adminTab === 'mgmt' ? '<div class="admin-mgmt"><div class="empty">加载中…</div></div>' : adminTab === 'stats' ? '<div class="admin-stats"><div class="empty">加载中…</div></div>' : '<div id="admin-tpl"><div class="empty">加载中…</div></div>'}</div>`;
 }
 function adminPriceHTML() {
   return `<div class="admin-price">
@@ -1252,6 +1254,201 @@ async function adminPriceBind() {
   await loadPrices();
   await loadUsage();
 }
+/* 模型管理 tab */
+async function adminMgmtBind() {
+  const wrap = document.querySelector('#m-body .admin-mgmt');
+  if (!wrap) return;
+  let cats = {};
+  try {
+    const d = await api('/api/admin/model-providers');
+    cats = d.categories || {};
+  } catch (e) {}
+  const catKeys = Object.keys(cats);
+  // 渲染分类 + 供应商配置 + 上架表单
+  wrap.innerHTML = `
+    <div class="frm-sec" style="font-weight:700">上架新模型</div>
+    <label class="fl">模型 ID <span class="muted">（须与 OpenRouter 一致）</span></label>
+    <div class="frm-row">
+      <input id="mm-model-id" class="grow2" placeholder="如 openai/gpt-7-mini" autocomplete="off">
+      <button class="btn ghost" id="mm-pull">拉取可用模型</button>
+    </div>
+    <div id="mm-pulled" style="margin-bottom:8px"></div>
+    <label class="fl">显示名</label>
+    <input id="mm-display" placeholder="留空则用模型 ID" autocomplete="off">
+    <label class="fl">描述（可选）</label>
+    <input id="mm-desc" placeholder="如：快速便宜，日常聊天首选" autocomplete="off">
+    <div class="frm-row">
+      <select id="mm-cat" class="grow1">
+        ${catKeys.map((k) => `<option value="${k}">${cats[k].name}</option>`).join('')}
+      </select>
+      <select id="mm-sub" class="grow1"></select>
+    </div>
+    <div class="frm-row">
+      <input id="mm-in" type="number" step="0.0001" min="0" placeholder="输入单价 /1M" class="grow1">
+      <input id="mm-out" type="number" step="0.0001" min="0" placeholder="输出单价 /1M" class="grow1">
+    </div>
+    <div class="frm-row">
+      <button class="btn ghost grow1" id="mm-test">连通测试</button>
+      <button class="btn grow1" id="mm-add">上架</button>
+    </div>
+    <div class="frm-hint" id="mm-msg"></div>
+    <div class="frm-sec" style="font-weight:700;margin-top:12px">分类供应商</div>
+    <div id="mm-providers"></div>
+    <div class="frm-sec" style="font-weight:700;margin-top:12px">已上架模型</div>
+    <div id="mm-list"><div class="empty">加载中…</div></div>`;
+
+  const catSel = document.getElementById('mm-cat');
+  const subSel = document.getElementById('mm-sub');
+  const updSub = () => {
+    const subs = (cats[catSel.value] && cats[catSel.value].subs) || {};
+    subSel.innerHTML = Object.entries(subs).map(([k, v]) => `<option value="${k}">${v}</option>`).join('');
+  };
+  catSel.onchange = updSub; updSub();
+
+  // 供应商配置
+  const pvWrap = document.getElementById('mm-providers');
+  const loadProviders = async () => {
+    try {
+      const d = await api('/api/admin/model-providers');
+      pvWrap.innerHTML = Object.entries(d.categories || {}).map(([k, v]) => {
+        const pv = (d.providers || {})[k] || {};
+        const hasKey = (d.has_key || {})[k];
+        return `<div class="card" style="margin-bottom:8px">
+          <div style="font-weight:700;margin-bottom:6px">${v.name}</div>
+          <div class="frm-row">
+            <input data-pv="${k}" data-f="provider_name" placeholder="供应商名" value="${esc(pv.provider_name || '')}" class="grow1">
+            <input data-pv="${k}" data-f="base_url" placeholder="Base URL" value="${esc(pv.base_url || '')}" class="grow2">
+          </div>
+          <div class="frm-row" style="margin-top:6px">
+            <input data-pv="${k}" data-f="api_key" type="password" placeholder="${hasKey ? '已设置（留空不修改）' : 'API Key'}" class="grow2">
+            <button class="btn ghost sm" data-pv-save="${k}">保存</button>
+          </div>
+        </div>`;
+      }).join('');
+      pvWrap.querySelectorAll('[data-pv-save]').forEach((b) => {
+        b.onclick = async () => {
+          const k = b.dataset.pvSave;
+          const vals = {};
+          pvWrap.querySelectorAll(`[data-pv="${k}"]`).forEach((inp) => { vals[inp.dataset.f] = inp.value.trim(); });
+          await api(`/api/admin/model-providers/${k}`, { method: 'PUT', body: JSON.stringify(vals) });
+          toast('已保存');
+        };
+      });
+    } catch (e) { pvWrap.innerHTML = '<div class="empty">加载失败</div>'; }
+  };
+
+  // 模型列表
+  const listEl = document.getElementById('mm-list');
+  const loadModels = async () => {
+    try {
+      const models = await api('/api/admin/models');
+      const byCat = {};
+      models.forEach((m) => { (byCat[m.category] = byCat[m.category] || []).push(m); });
+      listEl.innerHTML = Object.entries(cats).map(([k, v]) => {
+        const ms = byCat[k] || [];
+        if (!ms.length) return '';
+        return `<div class="frm-sec" style="font-weight:700">${v.name}（${ms.length}）</div>` +
+          ms.map((m) => `
+          <div class="frm-row" style="align-items:center;font-size:13px">
+            <span style="flex:1">${esc(m.display_name || m.model_id)}<br><span class="muted" style="font-size:11px">${esc(m.model_id)}</span></span>
+            <span class="muted" style="font-size:11px">${esc((cats[k].subs || {})[m.subcategory] || m.subcategory)}</span>
+            <button class="btn ghost sm" data-del="${m.id}">下架</button>
+          </div>`).join('');
+      }).join('') || '<div class="empty">暂无上架模型</div>';
+      listEl.querySelectorAll('[data-del]').forEach((b) => {
+        b.onclick = async () => {
+          if (!confirm('确定下架？')) return;
+          await api(`/api/admin/models/${b.dataset.del}`, { method: 'DELETE' });
+          loadModels();
+        };
+      });
+    } catch (e) { listEl.innerHTML = '<div class="empty">加载失败</div>'; }
+  };
+
+  // 拉取可用模型
+  document.getElementById('mm-pull').onclick = async () => {
+    const msg = document.getElementById('mm-msg');
+    const cat = catSel.value;
+    msg.textContent = '拉取中…';
+    try {
+      const d = await api('/api/admin/models/pull', { method: 'POST', body: JSON.stringify({ category: cat }) });
+      const box = document.getElementById('mm-pulled');
+      box.innerHTML = `<select id="mm-picked" style="width:100%"><option value="">选择模型…</option>` +
+        d.models.map((m) => `<option value="${esc(m)}">${esc(m)}</option>`).join('') + `</select>`;
+      document.getElementById('mm-picked').onchange = (e) => {
+        document.getElementById('mm-model-id').value = e.target.value;
+      };
+      msg.textContent = `拉取到 ${d.models.length} 个`;
+    } catch (e) { msg.textContent = e.message; }
+  };
+  // 连通测试
+  document.getElementById('mm-test').onclick = async () => {
+    const msg = document.getElementById('mm-msg');
+    const model_id = document.getElementById('mm-model-id').value.trim();
+    if (!model_id) return toast('请先填模型 ID');
+    msg.textContent = '测试中…';
+    try {
+      const d = await api('/api/admin/models/test', { method: 'POST', body: JSON.stringify({ model_id, category: catSel.value }) });
+      msg.textContent = d.msg;
+    } catch (e) { msg.textContent = e.message; }
+  };
+  // 上架
+  document.getElementById('mm-add').onclick = async () => {
+    const msg = document.getElementById('mm-msg');
+    const body = {
+      model_id: document.getElementById('mm-model-id').value.trim(),
+      display_name: document.getElementById('mm-display').value.trim(),
+      description: document.getElementById('mm-desc').value.trim(),
+      category: catSel.value, subcategory: subSel.value,
+      input_price: Number(document.getElementById('mm-in').value) || 0,
+      output_price: Number(document.getElementById('mm-out').value) || 0,
+    };
+    if (!body.model_id) return toast('请填模型 ID');
+    try {
+      await api('/api/admin/models', { method: 'POST', body: JSON.stringify(body) });
+      // 同步到 model_prices（价格关联）
+      await api('/api/admin/model-prices', { method: 'PUT', body: JSON.stringify({ model_id: body.model_id, input_price: body.input_price, output_price: body.output_price }) });
+      msg.textContent = '上架成功';
+      toast('已上架');
+      loadModels();
+    } catch (e) { msg.textContent = e.message; }
+  };
+
+  await loadProviders();
+  await loadModels();
+}
+/* 统计 tab */
+async function adminStatsBind() {
+  const wrap = document.querySelector('#m-body .admin-stats');
+  if (!wrap) return;
+  try {
+    const d = await api('/api/admin/models/stats?days=30');
+    const maxCalls = Math.max(...(d.by_model || []).map((m) => m.calls), 1);
+    const epName = { llmUnderstand: '理解', top3ranking: '排序', slotExtract: '抽槽', faithfulness: '二检' };
+    wrap.innerHTML = `
+      <div class="frm-sec" style="font-weight:700">近30天总览：${d.total.calls} 次调用，$${Number(d.total.cost).toFixed(4)}</div>
+      ${Object.entries(d.categories || {}).map(([k, v]) => {
+        const c = (d.by_category || {})[k] || { calls: 0, cost: 0 };
+        return `<div class="frm-row" style="font-size:13px"><span style="flex:1;font-weight:700">${v.name}</span><span class="muted">${c.calls}次 / $${Number(c.cost).toFixed(4)}</span></div>`;
+      }).join('')}
+      <div class="frm-sec" style="font-weight:700;margin-top:12px">模型分布</div>
+      ${(d.by_model || []).map((m) => {
+        const pct = Math.round((m.calls / maxCalls) * 100);
+        const disp = m.display_name || m.model_id;
+        const short = disp.length > 28 ? disp.slice(0, 28) + '…' : disp;
+        return `<div style="margin-bottom:10px">
+          <div class="frm-row" style="font-size:13px;align-items:center">
+            <span style="flex:1">${esc(short)}</span>
+            <span class="muted" style="font-size:12px">${m.calls}次 · $${Number(m.cost).toFixed(4)}</span>
+          </div>
+          <div style="height:6px;background:var(--surface2);border-radius:3px;margin:4px 0">
+            <div style="height:100%;width:${pct}%;background:var(--accent);border-radius:3px"></div>
+          </div>
+          <div class="muted" style="font-size:11px">${(m.by_endpoint || []).map((e) => `${epName[e.endpoint] || e.endpoint} ${e.calls}次`).join('　')}</div>
+        </div>`;
+      }).join('') || '<div class="empty">暂无数据</div>'}`;
+  } catch (e) { wrap.innerHTML = `<div class="empty">加载失败：${esc(e.message)}</div>`; }
+}
 async function bindAdmin() {
   document.querySelectorAll('#m-body [data-atab]').forEach((b) => {
     b.onclick = () => { adminTab = b.dataset.atab; Modal.setBody(adminBodyHTML()); bindAdmin(); };
@@ -1260,6 +1457,8 @@ async function bindAdmin() {
     if (adminTab === 'tags') { adminTagsBind(); return; }
     if (adminTab === 'tpl') { adminTplBind(); return; }
     if (adminTab === 'price') { adminPriceBind(); return; }
+    if (adminTab === 'mgmt') { adminMgmtBind(); return; }
+    if (adminTab === 'stats') { adminStatsBind(); return; }
     return;
   }
   try {
