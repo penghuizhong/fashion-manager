@@ -47,7 +47,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.23',
+  version: '0.10.24',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1480,6 +1480,162 @@ app.get('/api/admin/usage', (req, res) => {
      WHERE created_at >= datetime('now', '-' || ? || ' days')`
   ).get(days);
   res.json({ by_model: rows, total });
+});
+
+// ===== 模型管理 =====
+const MODEL_CATS = {
+  basic: { name: '基础模型', subs: { chat: '对话模型', backend: '后台模型', vision_understand: '识图模型' } },
+  visual: { name: '视觉模型', subs: { image_gen: '生图模型', video: '视频模型' } },
+  embedding: { name: '向量模型', subs: { embedding: '向量模型' } },
+};
+app.get('/api/admin/models', (req, res) => {
+  const { category } = req.query;
+  let sql = 'SELECT id, model_id, display_name, description, category, subcategory, provider_name, base_url, input_price, output_price, is_active, created_at FROM models';
+  const args = [];
+  if (category) { sql += ' WHERE category=?'; args.push(category); }
+  sql += ' ORDER BY category, subcategory, model_id';
+  res.json(db.prepare(sql).all(...args));
+});
+app.post('/api/admin/models', (req, res) => {
+  const { model_id, display_name, description, category, subcategory, provider_name, base_url, api_key, input_price, output_price } = req.body || {};
+  if (!model_id || !String(model_id).trim()) return res.status(400).json({ error: '模型 ID 必填' });
+  if (!category || !MODEL_CATS[category]) return res.status(400).json({ error: '分类必填' });
+  try {
+    const r = db.prepare(
+      `INSERT INTO models (model_id, display_name, description, category, subcategory, provider_name, base_url, api_key, input_price, output_price)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`
+    ).run(
+      String(model_id).trim(), String(display_name || '').trim(), String(description || '').trim(),
+      category, subcategory || '', String(provider_name || '').trim(),
+      String(base_url || '').trim(), String(api_key || '').trim(),
+      Number(input_price) || 0, Number(output_price) || 0
+    );
+    res.json({ ok: true, id: r.lastInsertRowid });
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) return res.status(400).json({ error: '该模型已上架' });
+    throw e;
+  }
+});
+app.put('/api/admin/models/:id', (req, res) => {
+  const b = req.body || {};
+  const sets = [], args = [];
+  for (const k of ['display_name', 'description', 'subcategory', 'provider_name', 'base_url', 'input_price', 'output_price', 'is_active']) {
+    if (b[k] !== undefined) { sets.push(`${k}=?`); args.push(b[k]); }
+  }
+  if (b.api_key !== undefined && String(b.api_key).trim() !== '') { sets.push('api_key=?'); args.push(String(b.api_key).trim()); }
+  if (!sets.length) return res.json({ ok: true });
+  args.push(req.params.id);
+  db.prepare(`UPDATE models SET ${sets.join(',')} WHERE id=?`).run(...args);
+  res.json({ ok: true });
+});
+app.delete('/api/admin/models/:id', (req, res) => {
+  db.prepare('DELETE FROM models WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+// 分类供应商配置
+app.get('/api/admin/model-providers', (req, res) => {
+  const rows = db.prepare('SELECT category, provider_name, base_url FROM model_providers').all();
+  const m = Object.fromEntries(rows.map((r) => [r.category, r]));
+  // 掩码：只返回是否已设置
+  const withKey = db.prepare('SELECT category FROM model_providers WHERE api_key IS NOT NULL AND api_key != ?').all('');
+  const hasKey = Object.fromEntries(withKey.map((r) => [r.category, true]));
+  res.json({ providers: m, has_key: hasKey, categories: MODEL_CATS });
+});
+app.put('/api/admin/model-providers/:category', (req, res) => {
+  const { category } = req.params;
+  if (!MODEL_CATS[category]) return res.status(400).json({ error: '分类无效' });
+  const { provider_name, base_url, api_key } = req.body || {};
+  const cur = db.prepare('SELECT * FROM model_providers WHERE category=?').get(category);
+  db.prepare(
+    `INSERT INTO model_providers (category, provider_name, base_url, api_key) VALUES (?,?,?,?)
+     ON CONFLICT(category) DO UPDATE SET provider_name=excluded.provider_name, base_url=excluded.base_url,
+     api_key=CASE WHEN excluded.api_key='' THEN model_providers.api_key ELSE excluded.api_key END,
+     updated_at=datetime('now','localtime')`
+  ).run(category, String(provider_name || ''), String(base_url || ''), String(api_key || ''));
+  res.json({ ok: true });
+});
+
+// 模型管理：拉取可用模型（按分类供应商）
+app.post('/api/admin/models/pull', async (req, res) => {
+  const { category } = req.body || {};
+  if (!category || !MODEL_CATS[category]) return res.status(400).json({ error: '分类无效' });
+  const pv = db.prepare('SELECT * FROM model_providers WHERE category=?').get(category);
+  const base_url = ((req.body && req.body.base_url) || (pv && pv.base_url) || '').replace(/\/+$/, '');
+  const api_key = (req.body && req.body.api_key) || (pv && pv.api_key) || '';
+  if (!base_url) return res.status(400).json({ error: '请先配置该分类的供应商地址' });
+  try {
+    const r = await fetch(base_url + '/models', {
+      headers: api_key ? { 'Authorization': `Bearer ${api_key}` } : {},
+      signal: AbortSignal.timeout(20000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((d.error && d.error.message) || `返回 ${r.status}`);
+    res.json({ ok: true, models: (d.data || []).map((x) => x.id).filter(Boolean) });
+  } catch (e) { res.status(500).json({ error: `拉取失败：${e.message}` }); }
+});
+// 模型管理：连通测试（按分类走不同接口）
+app.post('/api/admin/models/test', async (req, res) => {
+  const { model_id, category } = req.body || {};
+  if (!model_id) return res.status(400).json({ error: '模型 ID 必填' });
+  const pv = db.prepare('SELECT * FROM model_providers WHERE category=?').get(category || 'basic');
+  const base_url = ((req.body && req.body.base_url) || (pv && pv.base_url) || '').replace(/\/+$/, '');
+  const api_key = (req.body && req.body.api_key) || (pv && pv.api_key) || '';
+  if (!base_url) return res.status(400).json({ error: '请先配置供应商地址' });
+  try {
+    let url, body;
+    if (category === 'embedding') {
+      url = base_url + '/embeddings';
+      body = { model: model_id, input: '测试' };
+    } else if (category === 'visual') {
+      url = base_url + '/images/generations';
+      body = { model: model_id, prompt: 'a red apple', n: 1, size: '256x256' };
+    } else {
+      url = base_url + '/chat/completions';
+      body = { model: model_id, max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] };
+    }
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(api_key ? { 'Authorization': `Bearer ${api_key}` } : {}) },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30000),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((d.error && d.error.message) || `返回 ${r.status}`);
+    res.json({ ok: true, msg: '连通正常' });
+  } catch (e) { res.status(500).json({ error: `测试失败：${e.message}` }); }
+});
+// 模型管理：分类统计（按上架模型的消耗）
+app.get('/api/admin/models/stats', (req, res) => {
+  const days = Number(req.query.days) || 30;
+  // 所有上架的模型
+  const models = db.prepare('SELECT model_id, display_name, category, subcategory FROM models WHERE is_active=1').all();
+  // 用量按 model 分组
+  const usage = db.prepare(
+    `SELECT model, endpoint, COUNT(*) as calls, SUM(tokens_in) as tokens_in, SUM(tokens_out) as tokens_out, SUM(cost) as cost
+     FROM ai_usage_log WHERE created_at >= datetime('now', '-' || ? || ' days')
+     GROUP BY model, endpoint`
+  ).all(days);
+  // 按分类汇总
+  const byCat = {};
+  for (const cat of Object.keys(MODEL_CATS)) byCat[cat] = { calls: 0, cost: 0, models: [] };
+  const modelMap = Object.fromEntries(models.map((m) => [m.model_id, m]));
+  for (const u of usage) {
+    const m = modelMap[u.model];
+    const cat = m ? m.category : 'basic'; // 未上架的模型归基础类
+    if (!byCat[cat]) continue;
+    byCat[cat].calls += u.calls;
+    byCat[cat].cost += u.cost || 0;
+  }
+  // 每个模型的明细
+  const byModel = models.map((m) => {
+    const us = usage.filter((u) => u.model === m.model_id);
+    const calls = us.reduce((a, b) => a + b.calls, 0);
+    const cost = us.reduce((a, b) => a + (b.cost || 0), 0);
+    const byEndpoint = us.map((u) => ({ endpoint: u.endpoint, calls: u.calls }));
+    return { ...m, calls, cost, by_endpoint: byEndpoint };
+  }).sort((a, b) => b.calls - a.calls);
+  const total = { calls: byModel.reduce((a, b) => a + b.calls, 0), cost: byModel.reduce((a, b) => a + b.cost, 0) };
+  res.json({ by_category: byCat, by_model: byModel, total, categories: MODEL_CATS });
 });
 
 // ---------- static ----------
