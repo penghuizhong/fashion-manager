@@ -47,7 +47,7 @@ const row = (r) => {
 
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.10.28',
+  version: '0.10.29',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -811,7 +811,7 @@ app.put('/api/admin/config', (req, res) => {
     'ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at'
   );
   const t = now();
-  for (const k of ['base_url', 'chat_model', 'backend_model', 'embedding_model', 'vision_model',
+  for (const k of ['base_url', 'chat_model', 'backend_model', 'embedding_model', 'vision_model', 'image_model',
     'embedding_base_url', 'vision_provider', 'vision_base_url']) {
     if (b[k] !== undefined) up.run(k, String(b[k]).slice(0, 500), t);
   }
