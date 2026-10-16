@@ -53,7 +53,7 @@ function getServiceId(req) {
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.13.4',
+  version: '0.13.5',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -2020,7 +2020,8 @@ app.put('/api/admin/ai-services/:id', (req, res) => {
 
 // ---------- static ----------
 // 静态资源走默认 ETag 验证；?v= 版本号负责主动 bust
-app.use(express.static(path.join(__dirname, '..', '..', 'client')));
+// index:false 防止 static 直接 serving index.html（走下面的 no-cache 路由）
+app.use(express.static(path.join(__dirname, '..', '..', 'client'), { index: false }));
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api/')) return next();
   // index.html 永不缓存：保证每次拿到最新的 ?v= 版本号
