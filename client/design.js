@@ -408,8 +408,10 @@ function vwRenderDetail() {
       <section class="card vw-task">
         <div class="vw-task-head"><div><h3>${esc(t.title)}</h3><p class="muted small">${esc(t.brief)}</p></div><span class="vw-status" data-status="${t.status}">${VW_STATUS[t.status]}</span></div>
         <label>生成提示词<textarea rows="4" data-vw-prompt="${t.id}">${esc(t.prompt)}</textarea></label>
+        ${t.selected_image_id ? `<div class="vw-selected-image"><span class="muted small">已选定稿图 · #${t.selected_image_id}</span><button class="btn ghost sm" data-vw-image-clear="${t.id}">取消关联</button></div>` : `<div class="vw-selected-image muted small">尚未关联定稿图</div>`}
         <div class="vw-task-actions">
           <select data-vw-status="${t.id}">${Object.entries(VW_STATUS).map(([v,l])=>`<option value="${v}" ${t.status===v?'selected':''}>${l}</option>`).join('')}</select>
+          <button class="btn ghost sm" data-vw-image-pick="${t.id}">从资产库选图</button>
           <button class="btn ghost sm" data-vw-task-save="${t.id}">保存任务</button>
           <button class="btn sm" data-vw-to-design="${t.id}">去设计台生成</button>
         </div>
@@ -434,6 +436,32 @@ function vwRenderDetail() {
         status:root.querySelector('[data-vw-status="'+id+'"]').value,
       })});
       toast('任务已保存'); await vwLoad(p.id);
+    } catch(e) { toast(e.message); }
+  });
+  root.querySelectorAll('[data-vw-image-pick]').forEach(b => b.onclick = async () => {
+    const taskId = Number(b.dataset.vwImagePick);
+    try {
+      const assets = await api('/api/assets?kind=generate');
+      if (!assets.length) { toast('资产库暂无生成图，请先去设计台生成'); return; }
+      Modal.open({ title: '为「' + (p.tasks.find(t => t.id === taskId)?.title || '任务') + '」选择定稿图', body: `
+        <div class="vw-asset-picker">${assets.map(a => `
+          <button class="vw-asset-option" data-vw-asset-id="${a.id}" type="button">
+            <img src="${esc(a.thumb_path || a.path)}" alt="生成图">
+            <span>${esc((a.prompt || a.note || '生成图').slice(0, 72))}</span>
+            <small class="muted">#${a.id}${a.model ? ' · ' + esc(a.model) : ''}</small>
+          </button>`).join('')}</div>` });
+      document.querySelectorAll('[data-vw-asset-id]').forEach(option => option.onclick = async () => {
+        try {
+          await api('/api/visual-workflow/tasks/' + taskId, { method:'PATCH', body:JSON.stringify({ selected_image_id:Number(option.dataset.vwAssetId) }) });
+          Modal.close(); toast('已关联定稿图'); await vwLoad(p.id);
+        } catch(e) { toast(e.message); }
+      });
+    } catch(e) { toast(e.message); }
+  });
+  root.querySelectorAll('[data-vw-image-clear]').forEach(b => b.onclick = async () => {
+    try {
+      await api('/api/visual-workflow/tasks/' + Number(b.dataset.vwImageClear), { method:'PATCH', body:JSON.stringify({ selected_image_id:null }) });
+      toast('已取消图片关联'); await vwLoad(p.id);
     } catch(e) { toast(e.message); }
   });
   root.querySelectorAll('[data-vw-to-design]').forEach(b => b.onclick = async () => {
