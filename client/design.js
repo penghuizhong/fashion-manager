@@ -26,12 +26,14 @@ async function viewDesign() {
     <div class="page-head">
       <button class="iconbtn" data-menu aria-label="菜单"><svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       <h1>设计台</h1>
+      <button class="btn ghost sm" id="dsg-visual">西装视觉工作流</button>
       <button class="btn sm" id="dsg-new">新会话</button>
     </div>
     <div class="dsg-hint">视觉设计工作台：描述画面或传图，稳定产出主图、详情图等视觉物料。结构性改款必须重新制版。</div>
     <div id="dsg-sessions" class="list"></div>
   </div>`;
   document.getElementById('dsg-new').onclick = () => dsgNewSession(pre ? JSON.parse(pre) : null);
+  document.getElementById('dsg-visual').onclick = () => viewVisualWorkflow();
   await dsgRenderSessions();
 }
 async function dsgRenderSessions() {
@@ -323,4 +325,119 @@ function asDetail(id) {
       } catch (e) { toast(e.message); }
     }});
   };
+}
+
+
+/* ---------- 西装产品视觉工作流（MVP） ---------- */
+const VW = { products: [], current: null };
+const VW_STATUS = { todo: '待开始', in_progress: '制作中', review: '待审核', approved: '已确认' };
+async function viewVisualWorkflow(productId = null) {
+  document.querySelector('.main').classList.remove('chat-mode');
+  app.innerHTML = `
+    <div class="page">
+      <div class="page-head">
+        <button class="iconbtn" data-menu aria-label="菜单"><svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <button class="iconbtn" id="vw-back" aria-label="返回设计台">‹</button>
+        <h1>西装视觉工作流</h1>
+        <button class="btn sm" id="vw-new">新建档案</button>
+      </div>
+      <div class="dsg-hint">每款西装独立管理产品特征与四类营销素材。这里先整理档案、提示词和审核状态；实际生成仍复用现有设计台。</div>
+      <div id="vw-root"></div>
+    </div>`;
+  document.getElementById('vw-back').onclick = viewDesign;
+  document.getElementById('vw-new').onclick = () => vwCreate();
+  await vwLoad(productId);
+}
+async function vwLoad(productId = null) {
+  const root = document.getElementById('vw-root');
+  if (!root) return;
+  try {
+    VW.products = await api('/api/visual-workflow/products');
+    if (productId) {
+      VW.current = await api('/api/visual-workflow/products/' + productId);
+      vwRenderDetail();
+    } else {
+      VW.current = null;
+      root.innerHTML = VW.products.length ? `
+        <div class="vw-grid">${VW.products.map(p => `
+          <button class="card vw-product" data-vw-open="${p.id}">
+            <div class="vw-product-top"><span class="muted small">${esc(p.style_no || '独立产品档案')}</span><span class="vw-progress">${p.approved_count || 0}/4 已确认</span></div>
+            <h3>${esc(p.title)}</h3><p class="muted small">${esc(p.color || '颜色待定')} · ${esc(p.fit || '版型待定')} · ${esc(p.pieces || '套装待定')}</p>
+            <div class="vw-progress-track"><span style="width:${Math.min(100, (p.approved_count || 0) * 25)}%"></span></div>
+            <span class="muted small">编辑产品档案与素材任务 →</span>
+          </button>`).join('')}</div>`
+        : '<div class="empty">还没有视觉档案。先新建一款西装，系统会自动建立四类素材任务。</div>';
+      root.querySelectorAll('[data-vw-open]').forEach(b => b.onclick = () => vwLoad(Number(b.dataset.vwOpen)));
+    }
+  } catch (e) { root.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+}
+async function vwCreate() {
+  const title = prompt('请输入产品名称，例如：黑色三件套婚礼西装');
+  if (!title || !title.trim()) return;
+  try {
+    const p = await api('/api/visual-workflow/products', { method:'POST', body:JSON.stringify({ title: title.trim() }) });
+    toast('已创建视觉档案'); await vwLoad(p.id);
+  } catch (e) { toast(e.message); }
+}
+function vwRenderDetail() {
+  const p = VW.current, root = document.getElementById('vw-root');
+  if (!p || !root) return;
+  root.innerHTML = `
+    <div class="card vw-brief">
+      <div class="vw-product-top"><div><div class="muted small">${esc(p.style_no || '独立产品档案')}</div><h2>${esc(p.title)}</h2></div><button class="btn sm" id="vw-save">保存档案</button></div>
+      <div class="vw-fields">
+        <label>产品名称<input id="vw-title" value="${esc(p.title)}" maxlength="120"></label>
+        <label>主色<input id="vw-color" value="${esc(p.color)}" placeholder="如：黑色 / 深海军蓝"></label>
+        <label>版型<select id="vw-fit">${[['slim','修身'],['regular','常规'],['relaxed','宽松']].map(([v,l])=>`<option value="${v}" ${p.fit===v?'selected':''}>${l}</option>`).join('')}</select></label>
+        <label>套装组成<select id="vw-pieces">${[['two-piece','两件套'],['three-piece','三件套']].map(([v,l])=>`<option value="${v}" ${p.pieces===v?'selected':''}>${l}</option>`).join('')}</select></label>
+        <label>驳头<select id="vw-lapel">${[['notch','平驳领'],['peak','戗驳领'],['shawl','青果领']].map(([v,l])=>`<option value="${v}" ${p.lapel===v?'selected':''}>${l}</option>`).join('')}</select></label>
+        <label>扣型<select id="vw-buttons">${[['one','单扣'],['two','两粒扣'],['three','三粒扣']].map(([v,l])=>`<option value="${v}" ${p.buttons===v?'selected':''}>${l}</option>`).join('')}</select></label>
+        <label>后开衩<select id="vw-vent">${[['single','单开衩'],['double','双开衩'],['none','不开衩']].map(([v,l])=>`<option value="${v}" ${p.vent===v?'selected':''}>${l}</option>`).join('')}</select></label>
+        <label>面料参考<input id="vw-fabric" value="${esc(p.fabric_reference)}" placeholder="参考图 URL 或文件路径"></label>
+        <label>正面参考<input id="vw-front" value="${esc(p.front_reference)}" placeholder="参考图 URL 或文件路径"></label>
+        <label>背面参考<input id="vw-backref" value="${esc(p.back_reference)}" placeholder="参考图 URL 或文件路径"></label>
+      </div>
+      <label class="vw-notes-label">补充说明<textarea id="vw-notes" rows="3" placeholder="面料成分、纹样、不可改变的设计特征…">${esc(p.notes)}</textarea></label>
+    </div>
+    <h2 class="vw-section-title">四类营销素材</h2>
+    <div class="vw-task-list">${p.tasks.map(t => `
+      <section class="card vw-task">
+        <div class="vw-task-head"><div><h3>${esc(t.title)}</h3><p class="muted small">${esc(t.brief)}</p></div><span class="vw-status" data-status="${t.status}">${VW_STATUS[t.status]}</span></div>
+        <label>生成提示词<textarea rows="4" data-vw-prompt="${t.id}">${esc(t.prompt)}</textarea></label>
+        <div class="vw-task-actions">
+          <select data-vw-status="${t.id}">${Object.entries(VW_STATUS).map(([v,l])=>`<option value="${v}" ${t.status===v?'selected':''}>${l}</option>`).join('')}</select>
+          <button class="btn ghost sm" data-vw-task-save="${t.id}">保存任务</button>
+          <button class="btn sm" data-vw-to-design="${t.id}">去设计台生成</button>
+        </div>
+      </section>`).join('')}</div>`;
+  document.getElementById('vw-save').onclick = async () => {
+    const body = {
+      title:document.getElementById('vw-title').value, color:document.getElementById('vw-color').value,
+      fit:document.getElementById('vw-fit').value, pieces:document.getElementById('vw-pieces').value,
+      lapel:document.getElementById('vw-lapel').value, buttons:document.getElementById('vw-buttons').value,
+      vent:document.getElementById('vw-vent').value, fabric_reference:document.getElementById('vw-fabric').value,
+      front_reference:document.getElementById('vw-front').value, back_reference:document.getElementById('vw-backref').value,
+      notes:document.getElementById('vw-notes').value,
+    };
+    try { VW.current = await api('/api/visual-workflow/products/'+p.id,{method:'PATCH',body:JSON.stringify(body)}); toast('产品档案已保存'); vwRenderDetail(); }
+    catch(e) { toast(e.message); }
+  };
+  root.querySelectorAll('[data-vw-task-save]').forEach(b => b.onclick = async () => {
+    const id = Number(b.dataset.vwTaskSave);
+    try {
+      await api('/api/visual-workflow/tasks/'+id,{method:'PATCH',body:JSON.stringify({
+        prompt:root.querySelector('[data-vw-prompt="'+id+'"]').value,
+        status:root.querySelector('[data-vw-status="'+id+'"]').value,
+      })});
+      toast('任务已保存'); await vwLoad(p.id);
+    } catch(e) { toast(e.message); }
+  });
+  root.querySelectorAll('[data-vw-to-design]').forEach(b => b.onclick = async () => {
+    const id = Number(b.dataset.vwToDesign), task = p.tasks.find(t => t.id === id);
+    try {
+      sessionStorage.setItem('dsg_garment', JSON.stringify({ id:p.garment_id, visual_product_id:p.id, task_id:id, prompt:task.prompt, title:task.title }));
+      await viewDesign();
+      toast('请新建会话，将任务提示词复制到输入框后生成');
+    } catch(e) { toast(e.message); }
+  });
 }
