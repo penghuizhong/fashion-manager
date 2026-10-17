@@ -55,7 +55,7 @@ function getServiceId(req) {
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.16.10',
+  version: '0.16.11',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1583,12 +1583,12 @@ app.get('/api/admin/model-prices', (req, res) => {
   res.json(db.prepare('SELECT * FROM model_prices ORDER BY model_id').all());
 });
 app.put('/api/admin/model-prices', (req, res) => {
-  const { model_id, input_price, output_price } = req.body || {};
+  const { model_id, input_price, output_price, image_price } = req.body || {};
   if (!model_id) return res.status(400).json({ error: 'model_id 必填' });
   db.prepare(
-    'INSERT INTO model_prices (model_id, input_price, output_price) VALUES (?,?,?) ' +
-    "ON CONFLICT(model_id) DO UPDATE SET input_price=excluded.input_price, output_price=excluded.output_price, updated_at=datetime('now','localtime')"
-  ).run(model_id, Number(input_price) || 0, Number(output_price) || 0);
+    'INSERT INTO model_prices (model_id, input_price, output_price, image_price) VALUES (?,?,?,?) ' +
+    "ON CONFLICT(model_id) DO UPDATE SET input_price=excluded.input_price, output_price=excluded.output_price, image_price=excluded.image_price, updated_at=datetime('now','localtime')"
+  ).run(model_id, Number(input_price) || 0, Number(output_price) || 0, Number(image_price) || 0);
   res.json({ ok: true });
 });
 // 用量统计（按模型汇总）
@@ -1614,7 +1614,7 @@ const MODEL_CATS = {
 };
 app.get(['/api/admin/models', '/api/admin/models/catalog'], (req, res) => {
   const { category } = req.query;
-  let sql = 'SELECT id, model_id, display_name, description, category, subcategory, provider_name, base_url, input_price, output_price, is_active, created_at FROM models';
+  let sql = 'SELECT id, model_id, display_name, description, category, subcategory, provider_name, base_url, input_price, output_price, image_price, is_active, created_at FROM models';
   const args = [];
   if (category) { sql += ' WHERE category=?'; args.push(category); }
   sql += ' ORDER BY category, subcategory, model_id';
@@ -1645,13 +1645,23 @@ app.post('/api/admin/models', (req, res) => {
 app.put('/api/admin/models/:id', (req, res) => {
   const b = req.body || {};
   const sets = [], args = [];
-  for (const k of ['display_name', 'description', 'subcategory', 'provider_name', 'base_url', 'input_price', 'output_price', 'is_active']) {
+  for (const k of ['display_name', 'description', 'subcategory', 'provider_name', 'base_url', 'input_price', 'output_price', 'image_price', 'is_active']) {
     if (b[k] !== undefined) { sets.push(`${k}=?`); args.push(b[k]); }
   }
   if (b.api_key !== undefined && String(b.api_key).trim() !== '') { sets.push('api_key=?'); args.push(String(b.api_key).trim()); }
   if (!sets.length) return res.json({ ok: true });
   args.push(req.params.id);
   db.prepare(`UPDATE models SET ${sets.join(',')} WHERE id=?`).run(...args);
+  // 价格同步到 model_prices（唯一价格源）
+  if (b.input_price !== undefined || b.output_price !== undefined || b.image_price !== undefined) {
+    const m = db.prepare('SELECT model_id, input_price, output_price, image_price FROM models WHERE id=?').get(Number(req.params.id));
+    if (m) {
+      db.prepare(
+        `INSERT INTO model_prices (model_id, input_price, output_price, image_price, unit) VALUES (?,?,?,?,?)
+         ON CONFLICT(model_id) DO UPDATE SET input_price=excluded.input_price, output_price=excluded.output_price, image_price=excluded.image_price, updated_at=datetime('now','localtime')`
+      ).run(m.model_id, Number(m.input_price) || 0, Number(m.output_price) || 0, Number(m.image_price) || 0, 'CNY/1M tokens');
+    }
+  }
   res.json({ ok: true });
 });
 app.put('/api/admin/models/:id', (req, res) => {
@@ -1660,12 +1670,12 @@ app.put('/api/admin/models/:id', (req, res) => {
     db.prepare('UPDATE models SET input_price=?, output_price=? WHERE id=?')
       .run(Number(input_price) || 0, Number(output_price) || 0, Number(req.params.id));
     // 同步到 model_prices（唯一价格源）
-    const m = db.prepare('SELECT model_id FROM models WHERE id=?').get(Number(req.params.id));
+    const m = db.prepare('SELECT model_id, image_price FROM models WHERE id=?').get(Number(req.params.id));
     if (m) {
       db.prepare(
-        `INSERT INTO model_prices (model_id, input_price, output_price, unit) VALUES (?,?,?,?)
-         ON CONFLICT(model_id) DO UPDATE SET input_price=excluded.input_price, output_price=excluded.output_price, updated_at=datetime('now','localtime')`
-      ).run(m.model_id, Number(input_price) || 0, Number(output_price) || 0, 'CNY/1M tokens');
+        `INSERT INTO model_prices (model_id, input_price, output_price, image_price, unit) VALUES (?,?,?,?,?)
+         ON CONFLICT(model_id) DO UPDATE SET input_price=excluded.input_price, output_price=excluded.output_price, image_price=excluded.image_price, updated_at=datetime('now','localtime')`
+      ).run(m.model_id, Number(input_price) || 0, Number(output_price) || 0, Number(m.image_price) || 0, 'CNY/1M tokens');
     }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
