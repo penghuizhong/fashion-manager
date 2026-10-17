@@ -388,7 +388,8 @@ function vwRenderDetail() {
   if (!p || !root) return;
   root.innerHTML = `
     <div class="card vw-brief">
-      <div class="vw-product-top"><div><div class="muted small">${esc(p.style_no || '独立产品档案')}</div><h2>${esc(p.title)}</h2></div><button class="btn sm" id="vw-save">保存档案</button></div>
+      <div class="vw-product-top"><div><div class="muted small">${esc(p.style_no || '独立产品档案')}</div><h2>${esc(p.title)}</h2></div><div class="row" style="gap:8px"><button class="btn ghost sm" id="vw-save-version">保存版本</button><button class="btn sm" id="vw-save">保存档案</button></div></div>
+      <div class="vw-version-panel"><div class="vw-version-head"><strong>版本记录</strong><span class="muted small">保存产品信息、提示词、审核状态和定稿图关联</span></div><div id="vw-versions" class="muted small">正在读取版本记录…</div></div>
       <div class="vw-fields">
         <label>产品名称<input id="vw-title" value="${esc(p.title)}" maxlength="120"></label>
         <label>主色<input id="vw-color" value="${esc(p.color)}" placeholder="如：黑色 / 深海军蓝"></label>
@@ -416,6 +417,28 @@ function vwRenderDetail() {
           <button class="btn sm" data-vw-to-design="${t.id}">去设计台生成</button>
         </div>
       </section>`).join('')}</div>`;
+  const versionRoot = document.getElementById('vw-versions');
+  const loadVersions = async () => {
+    try {
+      const versions = await api('/api/visual-workflow/products/' + p.id + '/versions');
+      versionRoot.innerHTML = versions.length ? versions.map(v => `
+        <div class="vw-version-row"><div><strong>V${v.version_num}</strong><span>${esc(v.note || '版本快照')}</span><small class="muted">${esc((v.created_at || '').slice(0,16))}</small></div>
+        <button class="btn ghost sm" data-vw-restore="${v.id}">恢复此版本</button></div>`).join('') : '<div class="muted small">还没有保存过版本。</div>';
+      versionRoot.querySelectorAll('[data-vw-restore]').forEach(btn => btn.onclick = () => {
+        Modal.confirm({ title: '恢复历史版本', body: '将用该版本覆盖当前产品信息、四类任务提示词、状态和定稿图关联。建议先保存当前版本。', okText: '恢复版本', onOk: async () => {
+          try { VW.current = await api('/api/visual-workflow/products/' + p.id + '/versions/' + btn.dataset.vwRestore + '/restore', { method:'POST', body:'{}' }); toast('已恢复历史版本'); await vwLoad(p.id); }
+          catch(e) { toast(e.message); }
+        }});
+      });
+    } catch(e) { versionRoot.textContent = e.message; }
+  };
+  document.getElementById('vw-save-version').onclick = async () => {
+    const note = prompt('给这个版本写个备注，例如：黑色三件套首轮定稿');
+    if (note === null) return;
+    try { await api('/api/visual-workflow/products/' + p.id + '/versions', { method:'POST', body:JSON.stringify({ note }) }); toast('版本已保存'); await loadVersions(); }
+    catch(e) { toast(e.message); }
+  };
+  loadVersions();
   document.getElementById('vw-save').onclick = async () => {
     const body = {
       title:document.getElementById('vw-title').value, color:document.getElementById('vw-color').value,
