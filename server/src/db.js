@@ -417,5 +417,45 @@ try {
   console.log('[migrate] model_providers.api_format');
 } catch (e) {}
 
-export default db;
 export const now = () => new Date().toISOString();
+
+// v0.16.9：设计台一期——design_tasks / design_images / inspirations
+db.exec(`CREATE TABLE IF NOT EXISTS design_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  garment_id INTEGER NOT NULL REFERENCES garments(id) ON DELETE CASCADE,
+  base_image_id INTEGER DEFAULT NULL,
+  insp_id INTEGER DEFAULT NULL,
+  base_path TEXT NOT NULL DEFAULT '',
+  desc_text TEXT NOT NULL DEFAULT '',
+  params_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'pending',
+  error TEXT NOT NULL DEFAULT '',
+  selected_image_id INTEGER DEFAULT NULL,
+  created_at TEXT DEFAULT (datetime('now','localtime')),
+  updated_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS design_images (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id INTEGER NOT NULL REFERENCES design_tasks(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  thumb_path TEXT NOT NULL DEFAULT '',
+  width INTEGER DEFAULT 0,
+  height INTEGER DEFAULT 0,
+  params_snapshot TEXT NOT NULL DEFAULT '{}',
+  selected INTEGER NOT NULL DEFAULT 0,
+  note TEXT NOT NULL DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE TABLE IF NOT EXISTS inspirations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  garment_id INTEGER DEFAULT NULL REFERENCES garments(id) ON DELETE SET NULL,
+  path TEXT NOT NULL,
+  thumb_path TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
+  source_url TEXT NOT NULL DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_design_tasks_garment ON design_tasks(garment_id)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_design_images_task ON design_images(task_id)`);
+
+export default db;
