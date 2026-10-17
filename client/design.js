@@ -439,9 +439,9 @@ function vwRenderDetail() {
   root.querySelectorAll('[data-vw-to-design]').forEach(b => b.onclick = async () => {
     const id = Number(b.dataset.vwToDesign), task = p.tasks.find(t => t.id === id);
     try {
-      sessionStorage.setItem('dsg_garment', JSON.stringify({ id:p.garment_id, visual_product_id:p.id, task_id:id, prompt:task.prompt, title:task.title }));
-      await viewDesign();
-      toast('任务提示词已填入输入框，可检查后生成');
+      DSG.pendingPrompt = task.prompt;
+      await dsgNewSession(p.garment_id ? { id:p.garment_id } : null);
+      toast('已打开新设计会话，检查提示词后即可生成');
     } catch(e) { toast(e.message); }
   });
 }
