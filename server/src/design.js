@@ -227,7 +227,7 @@ export function mountDesign(app, ctx) {
     res.json(rows);
   });
 
-  // ---------- 生成前确认：解析参数 + 计费（无副作用） ----------
+  // ---------- 生成前预检：解析参数 + 计费（无副作用；前端发送后直接调用 generate，无二次确认） ----------
   app.post('/api/design/prepare', (req, res) => {
     try {
       const { prompt, image_id, model_id, clarity, ratio, seed } = req.body || {};
@@ -239,11 +239,12 @@ export function mountDesign(app, ctx) {
         imgPath = im.path;
       }
       const r = resolveGeneration({ prompt, model_id, clarity, ratio, seed });
+      delete r.api_key; delete r.base_url; // 不把密钥和供应商地址暴露给前端
       res.json({ ok: true, ...r, has_image: !!imgPath, image_path: imgPath });
     } catch (e) { res.status(400).json({ error: e.message }); }
   });
 
-  // ---------- 生成（同步等待，最长 180s；用户点确认后才调用） ----------
+  // ---------- 生成（同步等待，最长 180s；前端发送后直接调用，无二次确认） ----------
   app.post('/api/design/generate', async (req, res) => {
     const { session_id, prompt, image_id, model_id, clarity, ratio, seed } = req.body || {};
     const t = getSession(session_id);

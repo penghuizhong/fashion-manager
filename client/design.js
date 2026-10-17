@@ -20,18 +20,17 @@ async function viewDesign() {
   await dsgLoadModels();
   const pre = sessionStorage.getItem('dsg_garment');
   if (pre) { sessionStorage.removeItem('dsg_garment'); }
-  const root = document.getElementById('app-root');
-  root.innerHTML = `
+  document.querySelector('.main').classList.remove('chat-mode');
+  app.innerHTML = `
   <div class="page">
     <div class="page-head">
-      <button class="iconbtn" id="dsg-menu" aria-label="菜单"><svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      <button class="iconbtn" data-menu aria-label="菜单"><svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       <h1>设计台</h1>
       <button class="btn sm" id="dsg-new">新会话</button>
     </div>
     <div class="dsg-hint">视觉设计工作台：描述画面或传图，稳定产出主图、详情图等视觉物料。结构性改款必须重新制版。</div>
     <div id="dsg-sessions" class="list"></div>
   </div>`;
-  document.getElementById('dsg-menu').onclick = () => root.classList.add('sidebar-open');
   document.getElementById('dsg-new').onclick = () => dsgNewSession(pre ? JSON.parse(pre) : null);
   await dsgRenderSessions();
 }
@@ -66,10 +65,11 @@ async function dsgNewSession(garment) {
 // ---------- 聊天工作台 ----------
 async function dsgOpenSession(sid) {
   DSG.cur = sid; DSG.attach = null;
-  const root = document.getElementById('app-root');
-  root.innerHTML = `
+  document.querySelector('.main').classList.add('chat-mode');
+  app.innerHTML = `
   <div class="page dsg-chat-page">
     <div class="page-head">
+      <button class="iconbtn" data-menu aria-label="菜单"><svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       <button class="iconbtn" id="dsg-back" aria-label="返回"><svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>
       <h1 id="dsg-title">设计台</h1>
     </div>
@@ -91,13 +91,13 @@ async function dsgOpenSession(sid) {
         <textarea id="dsg-input" rows="1" placeholder="描述画面…（可含比例词如竖版/3:4，会自动转成尺寸参数）"></textarea>
         <button class="chat-send" id="dsg-send" aria-label="发送"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>
       </div>
-      <div class="chat-hint">自费生图：发送后先确认本次消耗，再开始生成</div>
+      <div class="chat-hint">自费生图：发送后直接生成，单价见上方模型选择</div>
     </div>
   </div>`;
   document.getElementById('dsg-back').onclick = () => viewDesign();
   const modelSel = document.getElementById('dsg-model');
   modelSel.innerHTML = DSG.models.length
-    ? DSG.models.map((m) => `<option value="${esc(m.model_id)}"${DSG.model === m.model_id ? ' selected' : ''}>${esc(m.display_name || m.model_id)}</option>`).join('')
+    ? DSG.models.map((m) => `<option value="${esc(m.model_id)}"${DSG.model === m.model_id ? ' selected' : ''}>${esc(m.display_name || m.model_id)} · ${dsgCost(m.image_price)}${Number(m.image_price) > 0 ? '/张' : ''}</option>`).join('')
     : '<option value="">未上架 visual 模型</option>';
   modelSel.onchange = () => { DSG.model = modelSel.value; };
   document.getElementById('dsg-clarity').onchange = (e) => { DSG.clarity = e.target.value; };
@@ -190,45 +190,27 @@ async function dsgSend() {
       model_id: DSG.model, clarity: DSG.clarity, ratio: DSG.ratio,
     })});
   } catch (e) { toast(e.message); return; }
-  const ratioNote = prep.ratioFrom === 'prompt' ? '（从描述中识别）' : prep.ratioFrom === 'ui' ? '（手动选择）' : '（默认）';
-  Modal.open({ title: '确认生成', body: `
-    <div class="dsg-confirm">
-      <div class="frm-row"><span class="muted">模型</span><b>${esc(prep.model_name)}</b></div>
-      <div class="frm-row"><span class="muted">方式</span><b>${prep.has_image ? '图生图（原图+描述）' : '文生图'}</b></div>
-      <div class="frm-row"><span class="muted">比例</span><b>${esc(prep.ratio)} ${ratioNote}</b></div>
-      <div class="frm-row"><span class="muted">尺寸</span><b>${esc(prep.size)}（清晰度${DSG_CLARITY_LABEL[prep.clarity] || ''}）</b></div>
-      <div class="frm-row"><span class="muted">seed</span><b>${esc(String(prep.seed))}</b></div>
-      <div class="frm-row"><span class="muted">本次消耗</span><b class="dsg-cost">${dsgCost(prep.cost)}</b></div>
-      <div class="frm-row"><span class="muted">描述</span><span>${esc(prep.prompt_clean || prompt)}</span></div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn ghost" id="dsg-cancel">取消</button>
-      <button class="btn" id="dsg-confirm-go">确认生成</button>
-    </div>` });
-  document.getElementById('dsg-cancel').onclick = () => Modal.close();
-  document.getElementById('dsg-confirm-go').onclick = async () => {
-    Modal.close();
-    input.value = '';
-    const attachId = DSG.attach ? DSG.attach.id : null;
-    DSG.attach = null;
-    const pv = document.getElementById('dsg-attach-preview');
-    if (pv) { pv.style.display = 'none'; pv.innerHTML = ''; }
-    // 先行渲染用户消息 + 生成中占位
-    DSG.messages.push({ id: 'tmp-u', role: 'user', text: prompt, image_id: attachId, img_path: prep.image_path });
-    DSG.messages.push({ id: 'tmp-a', role: 'ai', text: '', image_id: null, meta: { model: prep.model_id, model_name: prep.model_name, size: prep.size, seed: prep.seed, cost: prep.cost, pending: true } });
-    dsgRenderMessages();
-    const inner = document.getElementById('dsg-inner');
-    const pend = inner.lastElementChild;
-    if (pend) pend.querySelector('.dsg-bubble').innerHTML = '<div class="dsg-generating"><span class="spin"></span>生成中…（最长约3分钟，可先干别的）</div>';
-    try {
-      await api('/api/design/generate', { method: 'POST', body: JSON.stringify({
-        session_id: DSG.cur, prompt, image_id: attachId,
-        model_id: DSG.model, clarity: DSG.clarity, ratio: DSG.ratio, seed: prep.seed,
-      })});
-      toast('已生成，记入资产库');
-    } catch (e) { toast(e.message); }
-    dsgLoadSession();
-  };
+  // 2026-10-17 用户拍板：去掉二次确认，发送后直接生图（像正常聊天一样）
+  input.value = '';
+  const attachId = DSG.attach ? DSG.attach.id : null;
+  DSG.attach = null;
+  const pv = document.getElementById('dsg-attach-preview');
+  if (pv) { pv.style.display = 'none'; pv.innerHTML = ''; }
+  // 先行渲染用户消息 + 生成中占位
+  DSG.messages.push({ id: 'tmp-u', role: 'user', text: prompt, image_id: attachId, img_path: prep.image_path });
+  DSG.messages.push({ id: 'tmp-a', role: 'ai', text: '', image_id: null, meta: { model: prep.model_id, model_name: prep.model_name, size: prep.size, seed: prep.seed, cost: prep.cost, pending: true } });
+  dsgRenderMessages();
+  const inner = document.getElementById('dsg-inner');
+  const pend = inner.lastElementChild;
+  if (pend) pend.querySelector('.dsg-bubble').innerHTML = '<div class="dsg-generating"><span class="spin"></span>生成中…（最长约3分钟，可先干别的）</div>';
+  try {
+    await api('/api/design/generate', { method: 'POST', body: JSON.stringify({
+      session_id: DSG.cur, prompt, image_id: attachId,
+      model_id: DSG.model, clarity: DSG.clarity, ratio: DSG.ratio, seed: prep.seed,
+    })});
+    toast('已生成，记入资产库');
+  } catch (e) { toast(e.message); }
+  dsgLoadSession();
 }
 async function dsgRegenerate(msgId) {
   DSG.messages.push({ id: 'tmp-r', role: 'ai', text: '', image_id: null, meta: { pending: true } });
@@ -246,11 +228,11 @@ async function dsgRegenerate(msgId) {
 // ---------- 资产库 ----------
 const ASSETS = { list: [], kind: '', garment: '' };
 async function viewAssets() {
-  const root = document.getElementById('app-root');
-  root.innerHTML = `
+  document.querySelector('.main').classList.remove('chat-mode');
+  app.innerHTML = `
   <div class="page">
     <div class="page-head">
-      <button class="iconbtn" id="as-menu" aria-label="菜单"><svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      <button class="iconbtn" data-menu aria-label="菜单"><svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
       <h1>资产库</h1>
     </div>
     <div class="dsg-controls">
@@ -263,7 +245,6 @@ async function viewAssets() {
     </div>
     <div id="as-grid" class="as-grid"></div>
   </div>`;
-  document.getElementById('as-menu').onclick = () => root.classList.add('sidebar-open');
   document.getElementById('as-kind').onchange = (e) => { ASSETS.kind = e.target.value; asRender(); };
   document.getElementById('as-garment').onchange = (e) => { ASSETS.garment = e.target.value; asRender(); };
   await asLoad();
