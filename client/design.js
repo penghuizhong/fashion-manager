@@ -179,38 +179,48 @@ async function dsgMsgClick(e) {
   }
 }
 async function dsgSend() {
+  if (DSG.sending) return; // 防连点重复提交（一次只跑一张，省费用）
   const input = document.getElementById('dsg-input');
   const prompt = input.value.trim();
   if (!prompt && !DSG.attach) { toast('请输入描述或上传图片'); return; }
   if (!DSG.model) { toast('请先在管理设置里上架 visual 模型'); return; }
-  let prep;
+  DSG.sending = true;
+  const sendBtn = document.getElementById('dsg-send');
+  if (sendBtn) sendBtn.disabled = true;
   try {
-    prep = await api('/api/design/prepare', { method: 'POST', body: JSON.stringify({
-      prompt, image_id: DSG.attach ? DSG.attach.id : null,
-      model_id: DSG.model, clarity: DSG.clarity, ratio: DSG.ratio,
-    })});
-  } catch (e) { toast(e.message); return; }
-  // 2026-10-17 用户拍板：去掉二次确认，发送后直接生图（像正常聊天一样）
-  input.value = '';
-  const attachId = DSG.attach ? DSG.attach.id : null;
-  DSG.attach = null;
-  const pv = document.getElementById('dsg-attach-preview');
-  if (pv) { pv.style.display = 'none'; pv.innerHTML = ''; }
-  // 先行渲染用户消息 + 生成中占位
-  DSG.messages.push({ id: 'tmp-u', role: 'user', text: prompt, image_id: attachId, img_path: prep.image_path });
-  DSG.messages.push({ id: 'tmp-a', role: 'ai', text: '', image_id: null, meta: { model: prep.model_id, model_name: prep.model_name, size: prep.size, seed: prep.seed, cost: prep.cost, pending: true } });
-  dsgRenderMessages();
-  const inner = document.getElementById('dsg-inner');
-  const pend = inner.lastElementChild;
-  if (pend) pend.querySelector('.dsg-bubble').innerHTML = '<div class="dsg-generating"><span class="spin"></span>生成中…（最长约3分钟，可先干别的）</div>';
-  try {
-    await api('/api/design/generate', { method: 'POST', body: JSON.stringify({
-      session_id: DSG.cur, prompt, image_id: attachId,
-      model_id: DSG.model, clarity: DSG.clarity, ratio: DSG.ratio, seed: prep.seed,
-    })});
-    toast('已生成，记入资产库');
-  } catch (e) { toast(e.message); }
-  dsgLoadSession();
+    let prep;
+    try {
+      prep = await api('/api/design/prepare', { method: 'POST', body: JSON.stringify({
+        prompt, image_id: DSG.attach ? DSG.attach.id : null,
+        model_id: DSG.model, clarity: DSG.clarity, ratio: DSG.ratio,
+      })});
+    } catch (e) { toast(e.message); return; }
+    // 2026-10-17 用户拍板：去掉二次确认，发送后直接生图（像正常聊天一样）
+    input.value = '';
+    const attachId = DSG.attach ? DSG.attach.id : null;
+    DSG.attach = null;
+    const pv = document.getElementById('dsg-attach-preview');
+    if (pv) { pv.style.display = 'none'; pv.innerHTML = ''; }
+    // 先行渲染用户消息 + 生成中占位
+    DSG.messages.push({ id: 'tmp-u', role: 'user', text: prompt, image_id: attachId, img_path: prep.image_path });
+    DSG.messages.push({ id: 'tmp-a', role: 'ai', text: '', image_id: null, meta: { model: prep.model_id, model_name: prep.model_name, size: prep.size, seed: prep.seed, cost: prep.cost, pending: true } });
+    dsgRenderMessages();
+    const inner = document.getElementById('dsg-inner');
+    const pend = inner.lastElementChild;
+    if (pend) pend.querySelector('.dsg-bubble').innerHTML = '<div class="dsg-generating"><span class="spin"></span>生成中…（最长约3分钟，可先干别的）</div>';
+    try {
+      await api('/api/design/generate', { method: 'POST', body: JSON.stringify({
+        session_id: DSG.cur, prompt, image_id: attachId,
+        model_id: DSG.model, clarity: DSG.clarity, ratio: DSG.ratio, seed: prep.seed,
+      })});
+      toast('已生成，记入资产库');
+    } catch (e) { toast(e.message); }
+    dsgLoadSession();
+  } finally {
+    DSG.sending = false;
+    const sb = document.getElementById('dsg-send');
+    if (sb) sb.disabled = false;
+  }
 }
 async function dsgRegenerate(msgId) {
   DSG.messages.push({ id: 'tmp-r', role: 'ai', text: '', image_id: null, meta: { pending: true } });
