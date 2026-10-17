@@ -74,7 +74,6 @@ function setNav(active) {
 
 /* ---------------- 路由 ---------------- */
 function route() {
-  if (typeof dsgStopPoll === 'function') dsgStopPoll(); // 设计台轮询在切页时停掉
   const h = location.hash || '#/';
   const parts = h.slice(2).split('/');
   // 弹窗是纯 DOM（挂 body），路由切换页面时必须手动清掉；模板弹窗地址本身除外
@@ -237,6 +236,7 @@ function renderDetail() {
     detailCache = null; viewDetail(g.id);
   };
   $('#d-edit').onclick = () => location.hash = `#/g/${g.id}/sample`;
+  $('#d-design').onclick = () => { sessionStorage.setItem('dsg_garment', JSON.stringify({ id: g.id, style_no: g.style_no })); location.hash = '#/design'; };
   $('#d-newver').onclick = () => location.hash = `#/g/${g.id}/version`;
   $('#d-quote').onclick = async () => {
     if (!sample) return toast('样衣不存在');
@@ -1196,8 +1196,8 @@ async function adminMgmtBind() {
           ms.map((m) => `
           <div class="frm-row" style="align-items:center;font-size:13px">
             <span style="flex:1">${esc(m.display_name || m.model_id)}<br><span class="muted" style="font-size:11px">${esc(m.model_id)}</span></span>
-            <span class="muted" style="font-size:11px">¥${m.input_price}/¥${m.output_price}/1M</span>
-            <button class="btn ghost sm" data-price="${m.id}" data-in="${m.input_price}" data-out="${m.output_price}">更改价格</button>
+            <span class="muted" style="font-size:11px">¥${m.input_price}/¥${m.output_price}/1M${m.category === 'visual' ? `<br>生图 ¥${m.image_price || 0}/张` : ''}</span>
+            <button class="btn ghost sm" data-price="${m.id}" data-in="${m.input_price}" data-out="${m.output_price}" data-img="${m.image_price || 0}" data-cat="${m.category}">更改价格</button>
             <button class="btn ghost sm" data-del="${m.id}">下架</button>
           </div>`).join('');
       }).join('') || '<div class="empty">暂无上架模型</div>';
@@ -1218,6 +1218,8 @@ async function adminMgmtBind() {
             <input id="mprice-in" type="number" step="0.0001" min="0" value="${esc(b.dataset.in || '0')}">
             <label class="fl">输出单价</label>
             <input id="mprice-out" type="number" step="0.0001" min="0" value="${esc(b.dataset.out || '0')}">
+            ${b.dataset.cat === 'visual' ? `<label class="fl">生图单价（元/张）</label>
+            <input id="mprice-img" type="number" step="0.01" min="0" value="${esc(b.dataset.img || '0')}">` : ''}
             <div class="modal-foot">
               <button class="btn ghost" id="mprice-cancel">取消</button>
               <button class="btn" id="mprice-ok">保存</button>
@@ -1235,6 +1237,7 @@ async function adminMgmtBind() {
                 body: JSON.stringify({
                   input_price: Number(document.getElementById('mprice-in').value) || 0,
                   output_price: Number(document.getElementById('mprice-out').value) || 0,
+                  image_price: document.getElementById('mprice-img') ? Number(document.getElementById('mprice-img').value) || 0 : undefined,
                 }),
               });
               toast('价格已更新');
