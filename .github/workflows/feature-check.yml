@@ -46,3 +46,9 @@ jobs:
           curl -sf http://127.0.0.1:3101/api/visual-workflow/products
           CREATED="$(curl -sf -X POST http://127.0.0.1:3101/api/visual-workflow/products -H 'Content-Type: application/json' -d '{"title":"CI smoke test suit","color":"black","pieces":"three-piece"}')"
           echo "$CREATED" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const p=JSON.parse(s);if(!p.id||p.tasks?.length!==4)process.exit(1);console.log('created visual product',p.id,'with',p.tasks.length,'tasks')})"
+          PRODUCT_ID="$(echo "$CREATED" | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).id')"
+          curl -sf -X POST "http://127.0.0.1:3101/api/visual-workflow/products/$PRODUCT_ID/versions" -H 'Content-Type: application/json' -d '{"note":"CI version snapshot"}' > /tmp/visual-version.json
+          VERSION_ID="$(node -pe 'JSON.parse(require("fs").readFileSync("/tmp/visual-version.json","utf8")).id')"
+          curl -sf -X PATCH "http://127.0.0.1:3101/api/visual-workflow/products/$PRODUCT_ID" -H 'Content-Type: application/json' -d '{"color":"changed-by-ci"}' >/dev/null
+          curl -sf -X POST "http://127.0.0.1:3101/api/visual-workflow/products/$PRODUCT_ID/versions/$VERSION_ID/restore" -H 'Content-Type: application/json' -d '{}' > /tmp/visual-restored.json
+          node -e "const p=JSON.parse(require('fs').readFileSync('/tmp/visual-restored.json','utf8'));if(p.color!=='black'||p.tasks.length!==4)process.exit(1);console.log('visual version snapshot and restore passed')"
