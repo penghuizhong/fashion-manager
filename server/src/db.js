@@ -227,6 +227,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS model_providers (
   provider_name TEXT DEFAULT '',
   base_url TEXT DEFAULT '',
   api_key TEXT DEFAULT '',
+  api_format TEXT DEFAULT 'openrouter',
   updated_at TEXT DEFAULT (datetime('now','localtime'))
 )`);
 db.exec(`CREATE TABLE IF NOT EXISTS model_prices (
@@ -406,6 +407,14 @@ export function deleteServiceCascade(id) {
 try {
   const seed = db.prepare(`SELECT id FROM ai_services WHERE name='默认客服' AND description='初始 AI 客服实例'`).get();
   if (seed) { deleteServiceCascade(seed.id); console.log('[migrate] v0.15.0 删除种子默认客服'); }
+} catch (e) {}
+
+// v0.16.8：供应商接口格式（visual 连通测试/图生图按格式走不同 API：qwen 原生 / openai 兼容）
+// 仅在新增列时回填一次：现有 visual 供应商是 qwen 系 relay，默认 qwen 格式，避免升级后中断
+try {
+  db.exec(`ALTER TABLE model_providers ADD COLUMN api_format TEXT DEFAULT 'openrouter'`);
+  db.exec(`UPDATE model_providers SET api_format='qwen' WHERE category='visual'`);
+  console.log('[migrate] model_providers.api_format');
 } catch (e) {}
 
 export default db;
