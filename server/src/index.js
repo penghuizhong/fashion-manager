@@ -53,7 +53,7 @@ function getServiceId(req) {
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.16.5',
+  version: '0.16.6',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1732,8 +1732,14 @@ app.post('/api/admin/models/test', async (req, res) => {
       url = base_url + '/embeddings';
       body = { model: model_id, input: '测试' };
     } else if (category === 'visual') {
-      url = base_url + '/images/generations';
-      body = { model: model_id, prompt: 'a red apple', n: 1, size: '1024x1024' };
+      // DashScope 原生格式：该 relay 不支持 OpenAI 兼容的 /images/generations，
+      // 按官方示例走 /api/v1/services/aigc/multimodal-generation/generation
+      url = new URL(base_url).origin + '/api/v1/services/aigc/multimodal-generation/generation';
+      body = {
+        model: model_id,
+        input: { messages: [{ role: 'user', content: [{ text: 'a red apple' }] }] },
+        parameters: { prompt_extend: true },
+      };
     } else {
       url = base_url + '/chat/completions';
       body = { model: model_id, max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] };
@@ -1745,7 +1751,11 @@ app.post('/api/admin/models/test', async (req, res) => {
       signal: AbortSignal.timeout(30000),
     });
     const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((d.error && d.error.message) || `返回 ${r.status}`);
+    if (!r.ok) throw new Error((d.error && d.error.message) || d.message || `返回 ${r.status}`);
+    // 原生接口成功时返回 output.task_id（异步任务），有 task 即算连通
+    if (category === 'visual' && !(d.output && (d.output.task_id || d.output.task_status))) {
+      throw new Error('未返回 task_id，疑似非图片生成接口');
+    }
     res.json({ ok: true, msg: '连通正常' });
   } catch (e) { res.status(500).json({ error: `测试失败：${e.message}` }); }
 });
