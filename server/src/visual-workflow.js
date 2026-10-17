@@ -143,11 +143,13 @@ export function mountVisualWorkflow(app, { db, now }) {
     db.transaction(() => {
       const fields = ['garment_id','title','category','color','fit','pieces','lapel','buttons','vent','fabric_reference','front_reference','back_reference','notes'];
       const sets = fields.map(k => k + '=?').concat('updated_at=?').join(',');
-      db.prepare('UPDATE visual_products SET ' + sets + ' WHERE id=?').run(...fields.map(k => snapshot[k] ?? ''), t, id);
+      db.prepare('UPDATE visual_products SET ' + sets + ' WHERE id=?').run(...fields.map(k => snapshot[k] ?? (k === 'garment_id' ? null : '')), t, id);
       for (const task of snapshot.tasks) {
+        const imageId = task.selected_image_id && db.prepare("SELECT id FROM design_images WHERE id=? AND kind='generate'").get(task.selected_image_id)
+          ? task.selected_image_id : null;
         db.prepare('UPDATE visual_product_tasks SET brief=?,prompt=?,status=?,selected_image_id=?,updated_at=? WHERE id=? AND product_id=?')
           .run(String(task.brief || ''), String(task.prompt || ''), ['todo','in_progress','review','approved'].includes(task.status) ? task.status : 'todo',
-            task.selected_image_id || null, t, Number(task.id), id);
+            imageId, t, Number(task.id), id);
       }
     })();
     res.json(productRow(id));
