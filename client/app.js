@@ -74,6 +74,7 @@ function setNav(active) {
 
 /* ---------------- 路由 ---------------- */
 function route() {
+  if (typeof dsgStopPoll === 'function') dsgStopPoll(); // 设计台轮询在切页时停掉
   const h = location.hash || '#/';
   const parts = h.slice(2).split('/');
   // 弹窗是纯 DOM（挂 body），路由切换页面时必须手动清掉；模板弹窗地址本身除外
@@ -92,7 +93,8 @@ function route() {
   if (parts[0] === 'tpl' && parts[1]) return viewTplList(parts[1]);
   if (parts[0] === 'tpl') return viewTplList();
   if (parts[0] === 'ai') return viewAi();
-  if (parts[0] === 'design') return viewStub('设计台', '二期：一键改款出图、设计灵感库、样衣参考尺寸。');
+  if (parts[0] === 'design') return viewDesign();
+  if (parts[0] === 'assets') return viewAssets();
   if (parts[0] === 'pattern') return viewStub('制版台', '二期：制版工具、公式计算器、纸样库。');
   return viewList();
 }
@@ -941,7 +943,7 @@ if (isEdit) bindEdit(); else bindView();
 
 /* ---------------- 占位 ---------------- */
 function viewStub(title, desc) {
-  const map = { '设计台': 'design', '样衣台': 'sample', '制版台': 'pattern' };
+  const map = { '样衣台': 'sample', '制版台': 'pattern' };
   setNav(map[title]);
   app.innerHTML = `${topbar(title)}<div class="page"><div class="empty">${esc(desc)}<br><br>该模块即将上线，<br>从左侧导航切到「样衣台」开始用。</div></div>`;
 }
@@ -2023,3 +2025,4 @@ async function empMemoryBind() {
   route();
   })();
 })();
+
