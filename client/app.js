@@ -1155,6 +1155,13 @@ async function adminMgmtBind() {
             <input data-pv="${k}" data-f="provider_name" placeholder="供应商名" value="${esc(pv.provider_name || '')}" class="grow1">
             <input data-pv="${k}" data-f="base_url" placeholder="Base URL" value="${esc(pv.base_url || '')}" class="grow2">
           </div>
+          ${k === 'visual' ? `<div class="frm-row" style="margin-top:6px;align-items:center">
+            <span class="muted" style="font-size:12px">接口格式</span>
+            <select data-pv="${k}" data-f="api_format" class="grow1">
+              <option value="openrouter" ${pv.api_format !== 'qwen' ? 'selected' : ''}>OpenAI 兼容格式</option>
+              <option value="qwen" ${pv.api_format === 'qwen' ? 'selected' : ''}>qwen 官方格式</option>
+            </select>
+          </div>` : ''}
           <div class="frm-row" style="margin-top:6px">
             <input data-pv="${k}" data-f="api_key" type="password" placeholder="${hasKey ? '已设置（留空不修改）' : 'API Key'}" class="grow2">
             <button class="btn ghost sm" data-pv-save="${k}">保存</button>
