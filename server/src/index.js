@@ -7,6 +7,7 @@ import { nextStyleNo, canTransition, STATUS_LABEL, CATEGORIES, SEASONS } from '.
 import { SNIPPETS, TEMPLATES } from './seedTemplatesV4.js';
 import { applyTagRules } from './seedTagRules.js';
 import { mountDesign } from './design.js';
+import { mountVisualWorkflow } from './visual-workflow.js';
 import { mountEmpChat } from './empchat.js';
 const LANGS = ['EN', 'ES', 'PT', 'FR', 'DE', 'AR'];
 const SCENES = ['first', 'ask', 'quote', 'nudge'];
@@ -55,7 +56,7 @@ function getServiceId(req) {
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.16.14',
+  version: '0.16.15',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -2178,6 +2179,8 @@ async function chatCompleteStream(messages, model, maxTokens, onToken) {
 mountEmpChat(app, { db, J, now, DATA_DIR, aiMsgCheck, aiRateLimit, chatComplete, chatCompleteStream, thinkingOffParams, getAIConfig, getAdminConfig, logUsage, getServiceId });
 // ---------- 设计台（一期 MVP，v0.16.9）：路由见 server/src/design.js ----------
 mountDesign(app, { db, DATA_DIR, J, now, getAdminConfig, chatComplete });
+// ---------- 西装产品视觉工作流（MVP） ----------
+mountVisualWorkflow(app, { db, now });
 // ---------- static ----------
 // 静态资源走默认 ETag 验证；?v= 版本号负责主动 bust
 // index:false 防止 static 直接 serving index.html（走下面的 no-cache 路由）
