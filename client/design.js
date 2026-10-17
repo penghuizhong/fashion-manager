@@ -1,7 +1,7 @@
 // 设计台 v1：视觉设计工作台（聊天式生图）+ 资产库
 // 由 client/app.js 经 route() 调用；依赖全局 api/esc/toast/Modal
 const DSG = {
-  sessions: [], cur: null, messages: [],
+  sessions: [], cur: null, messages: [], pendingPrompt: '',
   models: [], model: '', clarity: 'medium', ratio: 'auto',
   attach: null, // {id, path}
 };
@@ -19,7 +19,7 @@ async function dsgLoadModels() {
 async function viewDesign() {
   await dsgLoadModels();
   const pre = sessionStorage.getItem('dsg_garment');
-  if (pre) { sessionStorage.removeItem('dsg_garment'); }
+  if (pre) { try { DSG.pendingPrompt = JSON.parse(pre).prompt || ''; } catch { DSG.pendingPrompt = ''; } sessionStorage.removeItem('dsg_garment'); }
   document.querySelector('.main').classList.remove('chat-mode');
   app.innerHTML = `
   <div class="page">
@@ -97,6 +97,10 @@ async function dsgOpenSession(sid) {
     </div>
   </div>`;
   document.getElementById('dsg-back').onclick = () => viewDesign();
+  if (DSG.pendingPrompt) {
+    const promptInput = document.getElementById('dsg-input');
+    if (promptInput) { promptInput.value = DSG.pendingPrompt; DSG.pendingPrompt = ''; }
+  }
   const modelSel = document.getElementById('dsg-model');
   modelSel.innerHTML = DSG.models.length
     ? DSG.models.map((m) => `<option value="${esc(m.model_id)}"${DSG.model === m.model_id ? ' selected' : ''}>${esc(m.display_name || m.model_id)} · ${dsgCost(m.image_price)}${Number(m.image_price) > 0 ? '/张' : ''}</option>`).join('')
@@ -437,7 +441,7 @@ function vwRenderDetail() {
     try {
       sessionStorage.setItem('dsg_garment', JSON.stringify({ id:p.garment_id, visual_product_id:p.id, task_id:id, prompt:task.prompt, title:task.title }));
       await viewDesign();
-      toast('请新建会话，将任务提示词复制到输入框后生成');
+      toast('任务提示词已填入输入框，可检查后生成');
     } catch(e) { toast(e.message); }
   });
 }
