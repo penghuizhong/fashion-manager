@@ -55,7 +55,7 @@ function getServiceId(req) {
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.16.9',
+  version: '0.16.10',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1754,13 +1754,12 @@ app.post('/api/admin/models/test', async (req, res) => {
       body = { model: model_id, max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] };
     }
     const headers = { 'Content-Type': 'application/json', ...(api_key ? { 'Authorization': `Bearer ${api_key}` } : {}) };
-    // qwen 原生接口默认同步等待生图完成（>30s）；加异步头只提交任务取 task_id，不等生图
-    if (imgFmt === 'qwen') headers['X-DashScope-Async'] = 'enable';
+    // qwen 原生接口走同步等待（中转 key 不支持 X-DashScope-Async 异步头，2026-10-17 实测报错）；超时放宽到 180s
     const r = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(imgFmt === 'qwen' ? 180000 : 30000),
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error((d.error && d.error.message) || d.message || `返回 ${r.status}`);
