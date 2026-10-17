@@ -85,26 +85,10 @@ export function mountDesign(app, ctx) {
     const ct = (r.headers.get('content-type') || '').toLowerCase();
     return { buf, ext: ct.includes('png') ? 'png' : ct.includes('webp') ? 'webp' : 'jpg' };
   }
-  // qwen 原生格式：异步提交 → 轮询任务 → 下载图片
-  async function pollQwenTask(origin, headers, taskId) {
-    const deadline = Date.now() + 180000;
-    while (Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 3000));
-      const r = await fetch(`${origin}/api/v1/tasks/${taskId}`, { headers, signal: AbortSignal.timeout(30000) });
-      const d = await r.json().catch(() => ({}));
-      const st = d.output && d.output.task_status;
-      if (st === 'SUCCEEDED') {
-        const url = d.output.results && d.output.results[0] && d.output.results[0].url;
-        if (!url) throw new Error('生图成功但未返回图片地址');
-        return downloadImage(url);
-      }
-      if (st === 'FAILED' || st === 'CANCELED' || st === 'UNKNOWN') throw new Error(`生图任务${st}：${(d.output && d.output.message) || ''}`);
-    }
-    throw new Error('生图超时（180 秒）');
-  }
+  // qwen 原生格式：同步等待（中转 key 不支持 X-DashScope-Async 异步头，2026-10-17 实测报错）
   async function qwenImageEdit({ base_url, api_key, model, prompt, imageDataUrl, n }) {
     const origin = new URL(base_url).origin;
-    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${api_key}`, 'X-DashScope-Async': 'enable' };
+    const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${api_key}` };
     const out = [];
     for (let i = 0; i < n; i++) {
       const r = await fetch(origin + '/api/v1/services/aigc/multimodal-generation/generation', {
@@ -114,13 +98,13 @@ export function mountDesign(app, ctx) {
           input: { messages: [{ role: 'user', content: [{ image: imageDataUrl }, { text: prompt }] }] },
           parameters: { prompt_extend: true },
         }),
-        signal: AbortSignal.timeout(60000),
+        signal: AbortSignal.timeout(180000),
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(d.message || d.code || `生图提交失败 ${r.status}`);
-      const taskId = d.output && d.output.task_id;
-      if (!taskId) throw new Error('生图接口未返回 task_id');
-      out.push(await pollQwenTask(origin, headers, taskId));
+      if (!r.ok) throw new Error(d.message || d.code || `生图失败 ${r.status}`);
+      const url = d.output && d.output.results && d.output.results[0] && d.output.results[0].url;
+      if (!url) throw new Error('生图成功但未返回图片地址');
+      out.push(await downloadImage(url));
     }
     return out;
   }
