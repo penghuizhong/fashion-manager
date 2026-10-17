@@ -1,99 +1,10 @@
 // v0.16.0：员工简单聊天（soul + memory，不检索）路由模块：由 server/src/index.js 经 mountEmpChat 挂载
 export function mountEmpChat(app, ctx) {
-  const { db, J, now, DATA_DIR, aiMsgCheck, getAIConfig, getAdminConfig, logUsage, getServiceId } = ctx;
+  const { db, J, now, DATA_DIR, aiMsgCheck, aiRateLimit, chatComplete, chatCompleteStream, thinkingOffParams, getAIConfig, getAdminConfig, logUsage, getServiceId } = ctx;
   // ============ v0.16.0：员工简单聊天（soul + memory，不检索） ============
   // 关思考参数（借鉴 SoulChat providers.js）：
   // OpenRouter 系中转认 reasoning.enabled=false；qwen 系再加 enable_thinking=false。
   // token-plan 这类自定义中转按 custom 处理：两个都发，哪个生效用哪个。
-  function thinkingOffParams(model) {
-    return {
-      reasoning: { enabled: false },
-      ...(/qwen/i.test(model || '') ? { enable_thinking: false } : {}),
-    };
-  }
-  // 通用 chat completion（temperature 可调，默认 0.7）
-  async function chatComplete(messages, model, maxTokens, opts = {}) {
-    const cfg = getAIConfig();
-    if (!model) throw new Error('未配置模型');
-    if (!cfg.api_key) throw new Error('未配置 API Key');
-    const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
-    const body = {
-      model, messages,
-      temperature: opts.temperature !== undefined ? opts.temperature : 0.7,
-      max_tokens: maxTokens || 800,
-      ...thinkingOffParams(model),
-    };
-    if (opts.jsonMode) body.response_format = { type: 'json_object' };
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(90000),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((d.error && d.error.message) || `模型服务返回 ${r.status}`);
-    if (d.usage) logUsage(model, opts.usageTag || 'empChat', d.usage.prompt_tokens || 0, d.usage.completion_tokens || 0);
-    return (d.choices && d.choices[0] && d.choices[0].message && d.choices[0].message.content) || '';
-  }
-  // 流式 chat completion（借鉴 SoulChat llm.js chatStream）：每收到 delta 调 onToken，返回完整文本
-  async function chatCompleteStream(messages, model, maxTokens, onToken) {
-    const cfg = getAIConfig();
-    if (!model) throw new Error('未配置模型');
-    if (!cfg.api_key) throw new Error('未配置 API Key');
-    const url = cfg.base_url.replace(/\/+$/, '') + '/chat/completions';
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cfg.api_key}` },
-      body: JSON.stringify({
-        model, messages, temperature: 0.7, max_tokens: maxTokens || 800,
-        stream: true, stream_options: { include_usage: true },
-        ...thinkingOffParams(model),
-      }),
-      signal: AbortSignal.timeout(120000),
-    });
-    if (!r.ok) { const t = await r.text().catch(() => ''); throw new Error(`模型服务返回 ${r.status}：${t.slice(0, 200)}`); }
-    const reader = r.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = '', full = '', usage = null, sawDone = false;
-    const handleLine = (line) => {
-      const t = line.trim();
-      if (!t.startsWith('data:')) return;
-      const data = t.slice(5).trim();
-      if (data === '[DONE]') { sawDone = true; return; }
-      if (!data) return;
-      try {
-        const json = JSON.parse(data);
-        if (json.usage) usage = json.usage;
-        const d = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
-        if (d) { full += d; onToken(d); }
-      } catch (e) { /* 忽略坏块 */ }
-    };
-    for (;;) {
-      let readResult;
-      try {
-        readResult = await Promise.race([
-          reader.read(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('STREAM_STALLED')), 25000)),
-        ]);
-      } catch (e) {
-        // cancel() 本身返回 promise，必须接住，否则未处理 rejection 会拖垮进程
-        try { await reader.cancel().catch(() => {}); } catch (e2) {}
-        break;
-      }
-      const { done, value } = readResult;
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split('\n');
-      buf = lines.pop();
-      lines.forEach(handleLine);
-    }
-    if (buf.trim()) handleLine(buf);
-    if (usage) logUsage(model, 'empChat', usage.prompt_tokens || 0, usage.completion_tokens || 0);
-    // 上游未正常结束（缺 [DONE]）视为中断，由调用方决定如何处理
-    if (!sawDone) { const e = new Error('TRUNCATED'); e.partial = full; throw e; }
-    return full;
-  }
-  // 员工模型解析：员工配置优先，回退全局
   function empModels(svc) {
     const cfg = getAIConfig();
     const mcfg = svc ? JSON.parse(svc.model_config_json || '{}') : {};
