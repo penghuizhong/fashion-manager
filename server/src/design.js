@@ -114,6 +114,50 @@ export function mountDesign(app, ctx) {
 
   // ---------- 生图调用 ----------
   // qwen 原生格式：同步等待（中转 key 不支持 X-DashScope-Async，2026-10-17 实测）
+  // 中转可能直接返回 task_id（PENDING），此时需轮询任务接口取结果
+  function qwenPickResult(d) {
+    const out = (d && d.output) || {};
+    const r0 = Array.isArray(out.results) ? out.results[0] : null;
+    if (r0 && r0.url) return { url: r0.url };
+    if (r0 && (r0.b64_json || r0.b64_image)) return { buf: Buffer.from(r0.b64_json || r0.b64_image, 'base64'), ext: 'png' };
+    const d0 = d && Array.isArray(d.data) ? d.data[0] : null; // OpenAI 兼容风格
+    if (d0 && d0.url) return { url: d0.url };
+    if (d0 && d0.b64_json) return { buf: Buffer.from(d0.b64_json, 'base64'), ext: 'png' };
+    const ch = out.choices && out.choices[0];
+    const content = ch && ch.message && ch.message.content;
+    if (Array.isArray(content)) {
+      const im = content.find((c) => c && (c.image || c.image_url));
+      const iv = im && (im.image || im.image_url);
+      const u = typeof iv === 'string' ? iv : (iv && iv.url);
+      if (u) return { url: u };
+    }
+    return null;
+  }
+  async function qwenPollTask(origin, api_key, taskId) {
+    const deadline = Date.now() + 160000;
+    let delay = 3000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, delay));
+      const tr = await fetch(`${origin}/api/v1/tasks/${taskId}`, {
+        headers: { Authorization: `Bearer ${api_key}` },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!tr.ok) throw new Error(`任务状态查询失败 ${tr.status}`);
+      const td = await tr.json().catch(() => ({}));
+      const out = td.output || {};
+      const st = out.task_status;
+      if (st === 'SUCCEEDED') {
+        const got = qwenPickResult(td);
+        if (got) return got;
+        throw new Error('生图任务已完成但未返回图片地址');
+      }
+      if (st === 'FAILED' || st === 'CANCELED' || st === 'UNKNOWN') {
+        throw new Error(out.message || td.message || `生图任务${st}`);
+      }
+      delay = Math.min(delay + 1000, 8000);
+    }
+    throw new Error('生图任务轮询超时（160s），请稍后在资产库查看或重试');
+  }
   async function qwenGenerate({ base_url, api_key, model, prompt, imageDataUrl, size, seed }) {
     const origin = new URL(base_url).origin;
     const content = [];
@@ -131,9 +175,17 @@ export function mountDesign(app, ctx) {
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.message || d.code || `生图失败 ${r.status}`);
-    const url = d.output && d.output.results && d.output.results[0] && d.output.results[0].url;
-    if (!url) throw new Error('生图成功但未返回图片地址');
-    return downloadImage(url);
+    if (!d.output && (d.code || d.message)) throw new Error(d.message || String(d.code)); // 中转可能以 200 返回错误体
+    const got = qwenPickResult(d);
+    if (got) return got.url ? downloadImage(got.url) : { buf: got.buf, ext: got.ext };
+    const out = d.output || {};
+    if (out.task_id && out.task_status !== 'FAILED') {
+      const pg = await qwenPollTask(origin, api_key, out.task_id);
+      return pg.url ? downloadImage(pg.url) : { buf: pg.buf, ext: pg.ext };
+    }
+    console.error('[design qwen] 未识别的返回结构', JSON.stringify(d).slice(0, 800));
+    const keys = Object.keys(d);
+    throw new Error(`生图成功但未返回图片地址（返回字段：${keys.join(',') || '空响应'}）`);
   }
   async function openrouterGenerate({ base_url, api_key, model, prompt, size }) {
     const r = await fetch(base_url + '/images/generations', {
