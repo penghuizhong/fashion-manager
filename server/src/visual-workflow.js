@@ -31,7 +31,17 @@ export function mountVisualWorkflow(app, { db, now }) {
       updated_at TEXT NOT NULL,
       UNIQUE(product_id, view_key)
     );
+    CREATE TABLE IF NOT EXISTS visual_product_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL REFERENCES visual_products(id) ON DELETE CASCADE,
+      version_num INTEGER NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      snapshot_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(product_id, version_num)
+    );
     CREATE INDEX IF NOT EXISTS idx_visual_products_updated ON visual_products(updated_at);
+    CREATE INDEX IF NOT EXISTS idx_visual_versions_product ON visual_product_versions(product_id, version_num);
     CREATE INDEX IF NOT EXISTS idx_visual_tasks_product ON visual_product_tasks(product_id);
   `);
 
@@ -99,6 +109,47 @@ export function mountVisualWorkflow(app, { db, now }) {
       const sets = keys.map(k => `${k}=?`).concat('updated_at=?').join(',');
       db.prepare(`UPDATE visual_products SET ${sets} WHERE id=?`).run(...keys.map(k => patch[k]), now(), id);
     }
+    res.json(productRow(id));
+  });
+  app.get('/api/visual-workflow/products/:id/versions', (req, res) => {
+    const id = Number(req.params.id);
+    if (!db.prepare('SELECT id FROM visual_products WHERE id=?').get(id)) return res.status(404).json({ error: '视觉产品档案不存在' });
+    const versions = db.prepare('SELECT id, product_id, version_num, note, created_at FROM visual_product_versions WHERE product_id=? ORDER BY version_num DESC').all(id);
+    res.json(versions);
+  });
+  app.post('/api/visual-workflow/products/:id/versions', (req, res) => {
+    const id = Number(req.params.id);
+    const product = productRow(id);
+    if (!product) return res.status(404).json({ error: '视觉产品档案不存在' });
+    const t = now();
+    const note = String((req.body || {}).note || '').trim().slice(0, 300);
+    const result = db.transaction(() => {
+      const max = db.prepare('SELECT MAX(version_num) AS n FROM visual_product_versions WHERE product_id=?').get(id).n || 0;
+      const versionNum = max + 1;
+      const saved = db.prepare('INSERT INTO visual_product_versions (product_id,version_num,note,snapshot_json,created_at) VALUES (?,?,?,?,?)')
+        .run(id, versionNum, note, JSON.stringify(product), t);
+      return { id: saved.lastInsertRowid, product_id: id, version_num: versionNum, note, created_at: t };
+    })();
+    res.status(201).json(result);
+  });
+  app.post('/api/visual-workflow/products/:id/versions/:versionId/restore', (req, res) => {
+    const id = Number(req.params.id), versionId = Number(req.params.versionId);
+    const version = db.prepare('SELECT * FROM visual_product_versions WHERE id=? AND product_id=?').get(versionId, id);
+    if (!version) return res.status(404).json({ error: '版本记录不存在' });
+    let snapshot;
+    try { snapshot = JSON.parse(version.snapshot_json); } catch { return res.status(500).json({ error: '版本快照损坏' }); }
+    if (!snapshot || !snapshot.title || !Array.isArray(snapshot.tasks)) return res.status(500).json({ error: '版本快照格式无效' });
+    const t = now();
+    db.transaction(() => {
+      const fields = ['garment_id','title','category','color','fit','pieces','lapel','buttons','vent','fabric_reference','front_reference','back_reference','notes'];
+      const sets = fields.map(k => k + '=?').concat('updated_at=?').join(',');
+      db.prepare('UPDATE visual_products SET ' + sets + ' WHERE id=?').run(...fields.map(k => snapshot[k] ?? ''), t, id);
+      for (const task of snapshot.tasks) {
+        db.prepare('UPDATE visual_product_tasks SET brief=?,prompt=?,status=?,selected_image_id=?,updated_at=? WHERE id=? AND product_id=?')
+          .run(String(task.brief || ''), String(task.prompt || ''), ['todo','in_progress','review','approved'].includes(task.status) ? task.status : 'todo',
+            task.selected_image_id || null, t, Number(task.id), id);
+      }
+    })();
     res.json(productRow(id));
   });
   app.patch('/api/visual-workflow/tasks/:id', (req, res) => {
