@@ -53,7 +53,7 @@ function getServiceId(req) {
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.16.7',
+  version: '0.16.8',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1674,7 +1674,7 @@ app.delete('/api/admin/models/:id', (req, res) => {
 });
 // 分类供应商配置
 app.get('/api/admin/model-providers', (req, res) => {
-  const rows = db.prepare('SELECT category, provider_name, base_url FROM model_providers').all();
+  const rows = db.prepare('SELECT category, provider_name, base_url, api_format FROM model_providers').all();
   const m = Object.fromEntries(rows.map((r) => [r.category, r]));
   // 掩码：只返回是否已设置
   const withKey = db.prepare('SELECT category FROM model_providers WHERE api_key IS NOT NULL AND api_key != ?').all('');
@@ -1684,14 +1684,16 @@ app.get('/api/admin/model-providers', (req, res) => {
 app.put('/api/admin/model-providers/:category', (req, res) => {
   const { category } = req.params;
   if (!MODEL_CATS[category]) return res.status(400).json({ error: '分类无效' });
-  const { provider_name, base_url, api_key } = req.body || {};
+  const { provider_name, base_url, api_key, api_format } = req.body || {};
+  const fmt = api_format === 'qwen' ? 'qwen' : 'openrouter';
   const cur = db.prepare('SELECT * FROM model_providers WHERE category=?').get(category);
   db.prepare(
-    `INSERT INTO model_providers (category, provider_name, base_url, api_key) VALUES (?,?,?,?)
+    `INSERT INTO model_providers (category, provider_name, base_url, api_key, api_format) VALUES (?,?,?,?,?)
      ON CONFLICT(category) DO UPDATE SET provider_name=excluded.provider_name, base_url=excluded.base_url,
      api_key=CASE WHEN excluded.api_key='' THEN model_providers.api_key ELSE excluded.api_key END,
+     api_format=excluded.api_format,
      updated_at=datetime('now','localtime')`
-  ).run(category, String(provider_name || ''), String(base_url || ''), String(api_key || ''));
+  ).run(category, String(provider_name || ''), String(base_url || ''), String(api_key || ''), fmt);
   res.json({ ok: true });
 });
 
@@ -1728,25 +1730,30 @@ app.post('/api/admin/models/test', async (req, res) => {
   if (!base_url) return res.status(400).json({ error: '请先配置供应商地址' });
   try {
     let url, body;
+    // visual 图生图按供应商接口格式走不同 API：qwen 走 DashScope 原生格式，openrouter 走 OpenAI 兼容格式
+    const imgFmt = (category === 'visual' && pv && pv.api_format === 'qwen') ? 'qwen' : 'openrouter';
     if (category === 'embedding') {
       url = base_url + '/embeddings';
       body = { model: model_id, input: '测试' };
-    } else if (category === 'visual') {
-      // DashScope 原生格式：该 relay 不支持 OpenAI 兼容的 /images/generations，
-      // 按官方示例走 /api/v1/services/aigc/multimodal-generation/generation
+    } else if (category === 'visual' && imgFmt === 'qwen') {
+      // qwen 官方格式：POST {origin}/api/v1/services/aigc/multimodal-generation/generation
       url = new URL(base_url).origin + '/api/v1/services/aigc/multimodal-generation/generation';
       body = {
         model: model_id,
         input: { messages: [{ role: 'user', content: [{ text: 'a red apple' }] }] },
         parameters: { prompt_extend: true },
       };
+    } else if (category === 'visual') {
+      // OpenAI 兼容格式（openrouter）
+      url = base_url + '/images/generations';
+      body = { model: model_id, prompt: 'a red apple', n: 1, size: '1024x1024' };
     } else {
       url = base_url + '/chat/completions';
       body = { model: model_id, max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] };
     }
     const headers = { 'Content-Type': 'application/json', ...(api_key ? { 'Authorization': `Bearer ${api_key}` } : {}) };
-    // DashScope 原生接口默认同步等待生图完成（>30s）；加异步头只提交任务取 task_id，不等生图
-    if (category === 'visual') headers['X-DashScope-Async'] = 'enable';
+    // qwen 原生接口默认同步等待生图完成（>30s）；加异步头只提交任务取 task_id，不等生图
+    if (imgFmt === 'qwen') headers['X-DashScope-Async'] = 'enable';
     const r = await fetch(url, {
       method: 'POST',
       headers,
@@ -1755,8 +1762,8 @@ app.post('/api/admin/models/test', async (req, res) => {
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error((d.error && d.error.message) || d.message || `返回 ${r.status}`);
-    // 原生接口成功时返回 output.task_id（异步任务），有 task 即算连通
-    if (category === 'visual' && !(d.output && (d.output.task_id || d.output.task_status))) {
+    // qwen 原生接口成功时返回 output.task_id（异步任务），有 task 即算连通
+    if (imgFmt === 'qwen' && !(d.output && (d.output.task_id || d.output.task_status))) {
       throw new Error('未返回 task_id，疑似非图片生成接口');
     }
     res.json({ ok: true, msg: '连通正常' });
