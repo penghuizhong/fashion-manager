@@ -1,0 +1,48 @@
+name: Feature branch checks
+
+on:
+  push:
+    branches: [feat/product-visual-workflow]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci
+      - name: Syntax check
+        run: |
+          node --check server/src/index.js
+          node --check server/src/db.js
+          node --check server/src/design.js
+          node --check server/src/visual-workflow.js
+          node --check client/app.js
+          node --check client/design.js
+      - name: Smoke test visual workflow API
+        working-directory: server
+        run: |
+          export PORT=3101
+          export GM_DATA_DIR="$(mktemp -d)"
+          node src/index.js > /tmp/fashion-manager.log 2>&1 &
+          SRV=$!
+          trap 'kill $SRV 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3101/api/config >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:3101/api/config
+          curl -sf http://127.0.0.1:3101/api/visual-workflow/products
+          CREATED="$(curl -sf -X POST http://127.0.0.1:3101/api/visual-workflow/products -H 'Content-Type: application/json' -d '{"title":"CI smoke test suit","color":"black","pieces":"three-piece"}')"
+          echo "$CREATED" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const p=JSON.parse(s);if(!p.id||p.tasks?.length!==4)process.exit(1);console.log('created visual product',p.id,'with',p.tasks.length,'tasks')})"
