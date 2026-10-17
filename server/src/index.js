@@ -53,7 +53,7 @@ function getServiceId(req) {
 }
 // ---------- config ----------
 app.get('/api/config', (req, res) => res.json({
-  version: '0.16.4',
+  version: '0.16.5',
   categories: CATEGORIES,
   seasons: SEASONS,
   statusLabel: STATUS_LABEL,
@@ -1733,7 +1733,7 @@ app.post('/api/admin/models/test', async (req, res) => {
       body = { model: model_id, input: '测试' };
     } else if (category === 'visual') {
       url = base_url + '/images/generations';
-      body = { model: model_id, prompt: 'a red apple', n: 1, size: '256x256' };
+      body = { model: model_id, prompt: 'a red apple', n: 1, size: '1024x1024' };
     } else {
       url = base_url + '/chat/completions';
       body = { model: model_id, max_tokens: 5, messages: [{ role: 'user', content: 'hi' }] };
