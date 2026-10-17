@@ -319,9 +319,9 @@ mark.slotval{background:rgba(250,200,0,.35);color:inherit;border-radius:3px;padd
 .chat-opt:hover{border-color:var(--accent)}
 .chat-opt .k{font-weight:600;font-size:14px;margin-bottom:4px}
 .chat-opt .p{font-size:13px;color:var(--muted);line-height:1.5}
-.chat-foot{padding:10px 20px calc(14px + env(safe-area-inset-bottom))}
+.chat-foot{padding:10px 30px calc(14px + env(safe-area-inset-bottom))}
 /* 胶囊输入框：更窄更圆 */
-.chat-inputwrap{max-width:680px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:30px;padding:6px 6px 6px 10px;display:flex;align-items:center;gap:6px;box-shadow:0 4px 20px rgba(0,0,0,.08)}
+.chat-inputwrap{max-width:600px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:6px 6px 6px 14px;display:flex;align-items:center;gap:6px;box-shadow:0 6px 24px rgba(0,0,0,.10)}
 .chat-inputwrap textarea{flex:1;border:none;background:none;resize:none;font-size:15px;line-height:1.5;max-height:160px;padding:10px 4px;color:var(--text)}
 .chat-inputwrap textarea:focus{outline:none}
 .chat-inputwrap textarea::placeholder{color:var(--muted)}
@@ -340,10 +340,12 @@ mark.slotval{background:rgba(250,200,0,.35);color:inherit;border-radius:3px;padd
 .code-copy{border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;font-size:12px;padding:3px 10px;cursor:pointer}
 .codeblock pre{margin:0;padding:10px 12px;overflow-x:auto;font-size:13px;line-height:1.6}
 .codeblock pre code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre}
-/* 流式中断：提示 + 重新生成 */
-.stream-err{margin-top:8px;padding:8px 10px;border:1px dashed var(--border);border-radius:10px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
-.stream-err span{flex:1}
-.stream-err .chip{flex-shrink:0}
+/* AI 回复下方的操作条：重新生成 / 复制 */
+.ai-actions{margin-top:8px;display:flex;align-items:center;gap:8px}
+.ai-hint{flex:1;font-size:13px;color:var(--muted)}
+.aact{border:1px solid var(--border);background:var(--surface);color:var(--muted);border-radius:999px;padding:5px 13px;font-size:12px;cursor:pointer;flex-shrink:0}
+.aact:active{opacity:.7}
+.aact:disabled{opacity:.5}
 .chat-attach{flex-shrink:0;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:none;background:none;cursor:pointer;color:var(--muted)}
 .chat-attach:hover{background:var(--surface2);color:var(--text)}
 .chat-send{flex-shrink:0;width:36px;height:36px;border-radius:50%;border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;background:var(--btn-primary-bg);color:var(--btn-primary-text)}
