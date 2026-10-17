@@ -435,3 +435,39 @@ body{touch-action:pan-x pan-y}
 .asset{position:relative;border:none;background:none;padding:0;border-radius:10px;overflow:hidden;aspect-ratio:1}
 .asset img{width:100%;height:100%;object-fit:cover;display:block;background:var(--surface2)}
 .ast-big{width:100%;border-radius:var(--radius);background:var(--surface2);max-height:60vh;object-fit:contain}
+
+/* 设计台 v1：视觉工作台 + 资产库 */
+.dsg-hint { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+.dsg-controls { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.dsg-sel { flex: 1; min-width: 90px; padding: 8px 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: 13px; }
+.dsg-sess { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.dsg-sess-main { flex: 1; min-width: 0; }
+.dsg-sess-title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsg-chat-page { display: flex; flex-direction: column; height: 100%; }
+.dsg-body { flex: 1; overflow-y: auto; min-height: 0; }
+.dsg-inner { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 12px; }
+.dsg-msg { display: flex; }
+.dsg-msg.user { justify-content: flex-end; }
+.dsg-msg.ai { justify-content: flex-start; }
+.dsg-bubble { max-width: 88%; background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 10px 12px; font-size: 14px; }
+.dsg-msg.user .dsg-bubble { background: var(--btn-primary-bg); color: var(--btn-primary-text); border: none; }
+.dsg-img { width: 100%; max-width: 320px; border-radius: 12px; cursor: zoom-in; display: block; }
+.dsg-srcimg { width: 120px; border-radius: 10px; display: block; margin-bottom: 6px; }
+.dsg-meta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+.dsg-msg.user .dsg-meta { color: inherit; opacity: .75; }
+.dsg-actions { display: flex; gap: 6px; margin-top: 8px; }
+.dsg-generating { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.spin { width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--btn-primary-bg); border-radius: 50%; animation: dsgspin 0.8s linear infinite; display: inline-block; }
+@keyframes dsgspin { to { transform: rotate(360deg); } }
+.dsg-foot { padding-top: 8px; }
+.dsg-attach-preview { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+.dsg-attach-preview img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; }
+.dsg-confirm .frm-row { display: flex; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+.dsg-confirm .frm-row .muted { min-width: 64px; }
+.dsg-cost { color: var(--btn-primary-bg); font-size: 16px; }
+.as-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (min-width: 720px) { .as-grid { grid-template-columns: repeat(5, 1fr); } }
+.as-card { border-radius: 16px; overflow: hidden; background: var(--card); border: 1px solid var(--border); cursor: pointer; }
+.as-card img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+.as-meta { padding: 6px 8px; }
+.as-prompt { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

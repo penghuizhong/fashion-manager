@@ -458,4 +458,60 @@ db.exec(`CREATE TABLE IF NOT EXISTS inspirations (
 db.exec(`CREATE INDEX IF NOT EXISTS idx_design_tasks_garment ON design_tasks(garment_id)`);
 db.exec(`CREATE INDEX IF NOT EXISTS idx_design_images_task ON design_images(task_id)`);
 
+// v0.16.11：设计台 v1（视觉工作台）——design_images 资产登记列、design_tasks 会话标题、
+// design_chat_messages 独立聊天消息表（不复用 AI 员工 chat_messages）；model_prices/models 加 image_price（元/张）
+for (const [tbl, col, ddl] of [
+  ['design_images', 'prompt', `ALTER TABLE design_images ADD COLUMN prompt TEXT DEFAULT ''`],
+  ['design_images', 'model', `ALTER TABLE design_images ADD COLUMN model TEXT DEFAULT ''`],
+  ['design_images', 'seed', `ALTER TABLE design_images ADD COLUMN seed INTEGER`],
+  ['design_images', 'size', `ALTER TABLE design_images ADD COLUMN size TEXT DEFAULT ''`],
+  ['design_images', 'cost', `ALTER TABLE design_images ADD COLUMN cost REAL DEFAULT 0`],
+  ['design_images', 'kind', `ALTER TABLE design_images ADD COLUMN kind TEXT DEFAULT 'generate'`],
+  ['design_tasks', 'title', `ALTER TABLE design_tasks ADD COLUMN title TEXT DEFAULT ''`],
+  ['model_prices', 'image_price', `ALTER TABLE model_prices ADD COLUMN image_price REAL DEFAULT 0`],
+  ['models', 'image_price', `ALTER TABLE models ADD COLUMN image_price REAL DEFAULT 0`],
+]) {
+  try {
+    const cols = db.prepare(`PRAGMA table_info(${tbl})`).all().map((c) => c.name);
+    if (!cols.includes(col)) { db.exec(ddl); console.log(`[migrate] ${tbl} + ${col}`); }
+  } catch (e) {}
+}
+db.exec(`CREATE TABLE IF NOT EXISTS design_chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL REFERENCES design_tasks(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  text TEXT NOT NULL DEFAULT '',
+  image_id INTEGER DEFAULT NULL REFERENCES design_images(id) ON DELETE SET NULL,
+  meta_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT DEFAULT (datetime('now','localtime'))
+)`);
+db.exec(`CREATE INDEX IF NOT EXISTS idx_dcm_session ON design_chat_messages(session_id)`);
+// v0.16.11：design_tasks.garment_id 改为可空（v1 款关联可选）；表里无生产数据，直接重建
+try {
+  const nn = db.prepare(`PRAGMA table_info(design_tasks)`).all().find((c) => c.name === 'garment_id');
+  if (nn && nn.notnull) {
+    db.exec(`CREATE TABLE design_tasks_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      garment_id INTEGER DEFAULT NULL REFERENCES garments(id) ON DELETE CASCADE,
+      base_image_id INTEGER DEFAULT NULL,
+      insp_id INTEGER DEFAULT NULL,
+      base_path TEXT NOT NULL DEFAULT '',
+      desc_text TEXT NOT NULL DEFAULT '',
+      params_json TEXT NOT NULL DEFAULT '{}',
+      status TEXT NOT NULL DEFAULT 'pending',
+      error TEXT NOT NULL DEFAULT '',
+      selected_image_id INTEGER DEFAULT NULL,
+      title TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now','localtime')),
+      updated_at TEXT DEFAULT (datetime('now','localtime'))
+    )`);
+    db.exec(`INSERT INTO design_tasks_new (id, garment_id, base_image_id, insp_id, base_path, desc_text, params_json, status, error, selected_image_id, title, created_at, updated_at)
+      SELECT id, garment_id, base_image_id, insp_id, base_path, desc_text, params_json, status, error, selected_image_id, title, created_at, updated_at FROM design_tasks`);
+    db.exec('DROP TABLE design_tasks');
+    db.exec('ALTER TABLE design_tasks_new RENAME TO design_tasks');
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_design_tasks_garment ON design_tasks(garment_id)`);
+    console.log('[migrate] design_tasks.garment_id 可空');
+  }
+} catch (e) { console.warn('[migrate] design_tasks 重建失败', e.message); }
+
 export default db;

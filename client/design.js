@@ -1,307 +1,335 @@
-/* 设计台 + 资产库前端（一期 MVP，v0.16.9）：app.js 路由调用 viewDesign/viewAssets */
-/* ---------------- 设计台（一期 MVP，v0.16.9） ---------------- */
-let DSG = null;
-function dsgStopPoll() { if (DSG && DSG.timer) { clearInterval(DSG.timer); DSG.timer = null; } }
-function fileToDataUrl(file) {
-  return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); });
-}
-const DSG_STEPS = ['选款', '说改法', '看图选定', '存版次'];
+// 设计台 v1：视觉设计工作台（聊天式生图）+ 资产库
+// 由 client/app.js 经 route() 调用；依赖全局 api/esc/toast/Modal
+const DSG = {
+  sessions: [], cur: null, messages: [],
+  models: [], model: '', clarity: 'medium', ratio: 'auto',
+  attach: null, // {id, path}
+};
+const DSG_RATIO_LABEL = { auto: '自动', '1:1': '1:1 方形', '3:4': '3:4 竖版', '4:3': '4:3 横版', '16:9': '16:9 横版', '9:16': '9:16 竖版' };
+const DSG_CLARITY_LABEL = { low: '低', medium: '中', high: '高' };
+const dsgCost = (c) => (Number(c) > 0 ? `¥${Number(c).toFixed(2)}` : '未定价');
 
+async function dsgLoadModels() {
+  DSG.models = await api('/api/design/models').catch(() => []);
+  if (!DSG.models.find((m) => m.model_id === DSG.model || String(m.id) === DSG.model)) DSG.model = '';
+  if (!DSG.model && DSG.models.length) DSG.model = DSG.models[0].model_id;
+}
+
+// ---------- 会话列表 ----------
 async function viewDesign() {
-  dsgStopPoll();
-  setNav('design');
-  DSG = {
-    step: 1, timer: null, garments: [], garment: null, hist: [],
-    basePath: '', desc: '', inspPick: null, inspId: null,
-    params: { silhouette: '', color: '', fabric: '', details: '' },
-    taskId: null, task: null, images: [], selectedId: null,
-  };
-  try { const pre = JSON.parse(sessionStorage.getItem('dsg_insp') || 'null'); sessionStorage.removeItem('dsg_insp'); if (pre && pre.id) { DSG.inspPick = pre; DSG.inspId = pre.id; DSG.basePath = pre.path; } } catch {}
-  app.innerHTML = `${topbar('设计台')}
-  <div class="page dsg-page">
-    <div class="dsg-steps" id="dsg-steps"></div>
-    <div class="dsg-cols" id="dsg-cols" data-step="1">
-      <section class="dcol" data-col="a"><div id="dsg-a"></div></section>
-      <section class="dcol" data-col="b"><div id="dsg-b"></div></section>
-      <section class="dcol" data-col="c"><div id="dsg-c"></div></section>
+  await dsgLoadModels();
+  const pre = sessionStorage.getItem('dsg_garment');
+  if (pre) { sessionStorage.removeItem('dsg_garment'); }
+  const root = document.getElementById('app-root');
+  root.innerHTML = `
+  <div class="page">
+    <div class="page-head">
+      <button class="iconbtn" id="dsg-menu" aria-label="菜单"><svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      <h1>设计台</h1>
+      <button class="btn sm" id="dsg-new">新会话</button>
     </div>
+    <div class="dsg-hint">视觉设计工作台：描述画面或传图，稳定产出主图、详情图等视觉物料。结构性改款必须重新制版。</div>
+    <div id="dsg-sessions" class="list"></div>
   </div>`;
-  DSG.garments = await api('/api/garments').catch(() => []);
-  if (DSG.inspPick && DSG.inspPick.garment_id) {
-    DSG.garment = DSG.garments.find((g) => g.id === Number(DSG.inspPick.garment_id)) || null;
-    if (DSG.garment) { await dsgLoadHist(); DSG.step = 2; }
-  }
-  dsgRenderAll();
+  document.getElementById('dsg-menu').onclick = () => root.classList.add('sidebar-open');
+  document.getElementById('dsg-new').onclick = () => dsgNewSession(pre ? JSON.parse(pre) : null);
+  await dsgRenderSessions();
 }
-function dsgSetStep(n) {
-  DSG.step = n;
-  const c = $('#dsg-cols'); if (c) c.dataset.step = String(n);
-  dsgRenderSteps();
+async function dsgRenderSessions() {
+  DSG.sessions = await api('/api/design/sessions').catch(() => []);
+  const el = document.getElementById('dsg-sessions');
+  el.innerHTML = DSG.sessions.length ? DSG.sessions.map((s) => `
+    <div class="card dsg-sess" data-id="${s.id}">
+      <div class="dsg-sess-main">
+        <div class="dsg-sess-title">${esc(s.title || '新的设计')}</div>
+        <div class="muted small">${s.style_no ? `款 ${esc(s.style_no)} · ` : ''}${s.msg_count || 0} 条消息 · ${esc((s.updated_at || '').slice(0, 16))}</div>
+      </div>
+      <button class="iconbtn" data-del="${s.id}" aria-label="删除会话"><svg class="ic" viewBox="0 0 24 24" width="18" height="18"><path d="M4 7h16M9 7V5h6v2m-8 0l1 13h8l1-13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>
+    </div>`).join('')
+    : '<div class="empty">还没有设计会话，点右上角「新会话」开始。<br>也可以从款档案点「去设计台」带款发起。</div>';
+  el.querySelectorAll('.dsg-sess-main').forEach((m) => { m.onclick = () => dsgOpenSession(Number(m.closest('.dsg-sess').dataset.id)); });
+  el.querySelectorAll('[data-del]').forEach((b) => { b.onclick = (e) => {
+    e.stopPropagation();
+    Modal.confirm({ title: '删除会话', body: '删除该会话的全部消息和生成图吗？不可恢复。', okText: '删除', onOk: async () => {
+      await api(`/api/design/sessions/${b.dataset.del}`, { method: 'DELETE' });
+      toast('已删除'); dsgRenderSessions();
+    }});
+  }});
 }
-function dsgRenderSteps() {
-  const el = $('#dsg-steps'); if (!el) return;
-  el.innerHTML = DSG_STEPS.map((s, i) => {
-    const n = i + 1;
-    const cls = n < DSG.step ? 'done' : n === DSG.step ? 'on' : '';
-    return `<span class="dst ${cls}"><i class="dot"></i>${s}</span>${n < 4 ? '<span class="dln"></span>' : ''}`;
-  }).join('');
-}
-function dsgRenderAll() { dsgRenderSteps(); dsgRenderA(); dsgRenderB(); dsgRenderC(); }
-
-/* A 列：选款 + 本款改款历史 */
-function dsgRenderA() {
-  const el = $('#dsg-a'); if (!el) return;
-  el.innerHTML = `<div class="card"><div class="sechead" style="margin-top:0">选择款</div>
-    ${DSG.garments.length ? DSG.garments.map((g) => `
-      <button class="dsg-g ${DSG.garment && DSG.garment.id === g.id ? 'on' : ''}" data-g="${g.id}">
-        <span class="style-no">${esc(g.style_no)}</span><span class="muted">${esc(g.name)}</span>
-        ${g.latest_ver ? `<span class="badge dim">${esc(g.latest_ver)}</span>` : ''}
-      </button>`).join('') : '<div class="empty">暂无款，先去样衣台建款</div>'}
-    </div>
-    ${DSG.garment ? `<div class="card"><div class="sechead" style="margin-top:0">改款历史</div>
-      ${DSG.hist.length ? DSG.hist.map((t) => `
-        <button class="dsg-h" data-t="${t.id}">
-          ${t.sel_thumb || t.first_thumb ? `<img src="${esc(t.sel_thumb || t.first_thumb)}" loading="lazy">` : '<span class="dsg-hno"></span>'}
-          <span class="grow"><span class="dsg-ht">${esc((t.desc_text || '').slice(0, 18)) || '灵感改款'}</span>
-          <span class="muted">${esc(fmtDate(t.created_at))} · ${t.status === 'done' ? '已完成' : t.status === 'failed' ? '失败' : '生成中'} · ${t.img_count} 张</span></span>
-        </button>`).join('') : '<div class="empty">暂无改款记录</div>'}
-    </div>` : ''}`;
-  el.querySelectorAll('[data-g]').forEach((b) => b.onclick = () => dsgPickGarment(Number(b.dataset.g)));
-  el.querySelectorAll('[data-t]').forEach((b) => b.onclick = () => dsgOpenTask(Number(b.dataset.t)));
-}
-async function dsgPickGarment(id) {
-  DSG.garment = DSG.garments.find((g) => g.id === id) || null;
-  DSG.taskId = null; DSG.task = null; DSG.images = []; DSG.selectedId = null;
-  await dsgLoadHist();
-  dsgSetStep(2); dsgRenderA(); dsgRenderB(); dsgRenderC();
-}
-async function dsgLoadHist() {
-  if (!DSG.garment) { DSG.hist = []; return; }
-  DSG.hist = await api(`/api/garments/${DSG.garment.id}/design-history`).catch(() => []);
-}
-async function dsgOpenTask(tid) {
-  dsgStopPoll();
+async function dsgNewSession(garment) {
   try {
-    const d = await api(`/api/redesign/${tid}`);
-    DSG.taskId = tid; DSG.task = d.task; DSG.images = d.images;
-    DSG.selectedId = d.images.find((i) => i.selected) ? d.images.find((i) => i.selected).id : null;
-    DSG.params = { ...(d.task.params || {}) };
-    dsgSetStep(3); dsgRenderB(); dsgRenderC();
+    const r = await api('/api/design/sessions', { method: 'POST', body: JSON.stringify({ garment_id: garment ? garment.id : null }) });
+    dsgOpenSession(r.id);
   } catch (e) { toast(e.message); }
 }
 
-/* B 列：画布（基准图 / 骨架屏 / 候选图 / 存版次） */
-function dsgRenderB() {
-  const el = $('#dsg-b'); if (!el) return;
-  if (!DSG.garment) { el.innerHTML = '<div class="card"><div class="empty">先在左侧选择一款开始改款</div></div>'; return; }
-  const t = DSG.task;
-  let body = '';
-  if (DSG.basePath) body += `<div class="dsg-base"><span class="muted">基准图</span><img src="${esc(DSG.basePath)}"></div>`;
-  if (t && t.status === 'generating') {
-    body += `<div class="cand-grid">${'<div class="skel"></div>'.repeat(3)}</div><div class="notice">生图约需 10–30 秒，可以先干别的，完成后会停在这里。</div>`;
-  } else if (t && t.status === 'failed') {
-    body += `<div class="card"><div class="miss">${esc(t.error || '生成失败')}</div>
-      <button class="btn ghost" data-act="retry">重试</button></div>`;
-  } else if (DSG.images.length) {
-    body += `<div class="cand-grid">${DSG.images.map((im) => `
-      <button class="cand ${DSG.selectedId === im.id ? 'on' : ''}" data-img="${im.id}">
-        <img src="${esc(im.thumb_path || im.path)}" loading="lazy">
-        ${DSG.selectedId === im.id ? '<span class="cand-pick">已选定</span>' : ''}
-      </button>`).join('')}</div>`;
-    if (DSG.selectedId) {
-      body += `<div class="card"><label class="fl">版次备注</label>
-        <input id="dsg-note" placeholder="如：A字廓形改款" value="${esc((t && t.desc_text || '').slice(0, 40))}">
-        <div class="btnrow mt8"><button class="btn" data-act="savever">存为新版次</button></div>
-        <div class="notice">效果预览图：部件级改款只是图像编辑，结构性改款必须重新制版。</div></div>`;
-    } else {
-      body += '<div class="muted mt8">点选一张候选图，再存为新版次</div>';
-    }
-  } else {
-    body += '<div class="card"><div class="empty">在右侧描述改法并点击「生成候选图」</div></div>';
-  }
-  el.innerHTML = `<div class="card"><div class="sechead" style="margin-top:0">画布 · ${esc(DSG.garment.style_no)}</div>${body}</div>`;
-  el.querySelectorAll('[data-img]').forEach((b) => b.onclick = () => { DSG.selectedId = Number(b.dataset.img); dsgSetStep(4); dsgRenderB(); });
-  const retry = el.querySelector('[data-act="retry"]'); if (retry) retry.onclick = dsgRegen;
-  const sv = el.querySelector('[data-act="savever"]'); if (sv) sv.onclick = dsgSaveVersion;
-}
-function dsgPoll() {
-  dsgStopPoll();
-  DSG.timer = setInterval(async () => {
-    if (!DSG.taskId) return dsgStopPoll();
-    try {
-      const d = await api(`/api/redesign/${DSG.taskId}`);
-      DSG.task = d.task; DSG.images = d.images;
-      if (d.task.status !== 'generating') {
-        dsgStopPoll();
-        if (d.task.status === 'done' && d.task.params) DSG.params = { ...d.task.params };
-        if (d.task.status === 'failed') toast('生成失败：' + (d.task.error || ''));
-        else toast('候选图已生成');
-      }
-      dsgRenderB(); dsgRenderC();
-    } catch (e) { dsgStopPoll(); toast(e.message); }
-  }, 3000);
-  window._dsgTimer = DSG.timer;
-}
-
-/* C 列：基准图 + 改法描述 + 参数 */
-function dsgRenderC() {
-  const el = $('#dsg-c'); if (!el) return;
-  if (!DSG.garment) { el.innerHTML = ''; return; }
-  const p = DSG.params;
-  el.innerHTML = `<div class="card"><div class="sechead" style="margin-top:0">说改法</div>
-    <label class="fl">基准图</label>
-    <div class="rowline">
-      ${DSG.basePath ? `<img class="dsg-bthumb" src="${esc(DSG.basePath)}">` : '<span class="muted">未选择</span>'}
-      <label class="btn sm ghost" style="margin:0">上传<input type="file" id="dsg-file" accept="image/*" hidden></label>
+// ---------- 聊天工作台 ----------
+async function dsgOpenSession(sid) {
+  DSG.cur = sid; DSG.attach = null;
+  const root = document.getElementById('app-root');
+  root.innerHTML = `
+  <div class="page dsg-chat-page">
+    <div class="page-head">
+      <button class="iconbtn" id="dsg-back" aria-label="返回"><svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>
+      <h1 id="dsg-title">设计台</h1>
     </div>
-    ${DSG.inspPick ? `<div class="notice">灵感图：${esc(DSG.inspPick.note || '未命名')}</div>` : ''}
-    <label class="fl">一句话描述改法</label>
-    <textarea id="dsg-desc" placeholder="如：把廓形改成A字，颜色换成藏青">${esc(DSG.desc)}</textarea>
-    <label class="fl">廓形</label><input id="dsg-p-silhouette" value="${esc(p.silhouette)}" placeholder="如：A字">
-    <label class="fl">颜色</label><input id="dsg-p-color" value="${esc(p.color)}" placeholder="如：藏青">
-    <label class="fl">面料</label><input id="dsg-p-fabric" value="${esc(p.fabric)}" placeholder="如：羊毛">
-    <label class="fl">细节</label><input id="dsg-p-details" value="${esc(p.details)}" placeholder="如：加腰带">
-    <div class="btnrow mt12"><button class="btn" data-act="gen">生成候选图</button></div>
-    ${DSG.taskId ? '<div class="btnrow mt8"><button class="btn ghost" data-act="regen">用当前参数重新生成</button></div>' : ''}
+    <div class="dsg-controls">
+      <select id="dsg-model" class="dsg-sel" aria-label="模型"></select>
+      <select id="dsg-clarity" class="dsg-sel" aria-label="清晰度">
+        ${Object.entries(DSG_CLARITY_LABEL).map(([k, v]) => `<option value="${k}"${DSG.clarity === k ? ' selected' : ''}>清晰度${v}</option>`).join('')}
+      </select>
+      <select id="dsg-ratio" class="dsg-sel" aria-label="比例">
+        ${Object.entries(DSG_RATIO_LABEL).map(([k, v]) => `<option value="${k}"${DSG.ratio === k ? ' selected' : ''}>${v}</option>`).join('')}
+      </select>
+    </div>
+    <div class="dsg-body" id="dsg-body"><div class="dsg-inner" id="dsg-inner"></div></div>
+    <div class="dsg-foot">
+      <div id="dsg-attach-preview" class="dsg-attach-preview" style="display:none"></div>
+      <div class="chat-inputwrap">
+        <input type="file" id="dsg-img" accept="image/*" style="display:none">
+        <button class="chat-attach" id="dsg-attach" aria-label="上传图片"><svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+        <textarea id="dsg-input" rows="1" placeholder="描述画面…（可含比例词如竖版/3:4，会自动转成尺寸参数）"></textarea>
+        <button class="chat-send" id="dsg-send" aria-label="发送"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></button>
+      </div>
+      <div class="chat-hint">自费生图：发送后先确认本次消耗，再开始生成</div>
+    </div>
   </div>`;
-  el.querySelector('#dsg-desc').oninput = (e) => { DSG.desc = e.target.value; };
-  for (const k of ['silhouette', 'color', 'fabric', 'details']) {
-    el.querySelector(`#dsg-p-${k}`).oninput = (e) => { DSG.params[k] = e.target.value; };
-  }
-  el.querySelector('#dsg-file').onchange = async (e) => {
-    const f = e.target.files && e.target.files[0]; if (!f) return;
+  document.getElementById('dsg-back').onclick = () => viewDesign();
+  const modelSel = document.getElementById('dsg-model');
+  modelSel.innerHTML = DSG.models.length
+    ? DSG.models.map((m) => `<option value="${esc(m.model_id)}"${DSG.model === m.model_id ? ' selected' : ''}>${esc(m.display_name || m.model_id)}</option>`).join('')
+    : '<option value="">未上架 visual 模型</option>';
+  modelSel.onchange = () => { DSG.model = modelSel.value; };
+  document.getElementById('dsg-clarity').onchange = (e) => { DSG.clarity = e.target.value; };
+  document.getElementById('dsg-ratio').onchange = (e) => { DSG.ratio = e.target.value; };
+  const input = document.getElementById('dsg-input');
+  const sendBtn = document.getElementById('dsg-send');
+  sendBtn.onclick = dsgSend;
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); dsgSend(); } });
+  document.getElementById('dsg-attach').onclick = () => document.getElementById('dsg-img').click();
+  document.getElementById('dsg-img').onchange = async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    e.target.value = '';
     try {
-      const du = await fileToDataUrl(f);
-      const d = await api('/api/design/upload', { method: 'POST', body: JSON.stringify({ dataUrl: du }) });
-      DSG.basePath = d.path; DSG.inspId = null; DSG.inspPick = null;
-      toast('基准图已上传'); dsgRenderB(); dsgRenderC();
+      const dataUrl = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+      const up = await api('/api/design/upload', { method: 'POST', body: JSON.stringify({ dataUrl, session_id: DSG.cur }) });
+      DSG.attach = { id: up.id, path: up.path };
+      const pv = document.getElementById('dsg-attach-preview');
+      pv.style.display = 'flex';
+      pv.innerHTML = `<img src="${esc(up.path)}" alt="附件"><span>已传原图，发送=图生图</span><button class="iconbtn" id="dsg-attach-x" aria-label="移除"><svg class="ic" viewBox="0 0 24 24" width="16" height="16"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>`;
+      document.getElementById('dsg-attach-x').onclick = () => { DSG.attach = null; pv.style.display = 'none'; pv.innerHTML = ''; };
     } catch (err) { toast(err.message); }
   };
-  el.querySelector('[data-act="gen"]').onclick = dsgGenerate;
-  const rg = el.querySelector('[data-act="regen"]'); if (rg) rg.onclick = dsgRegen;
+  document.getElementById('dsg-inner').addEventListener('click', dsgMsgClick);
+  await dsgLoadSession();
 }
-async function dsgGenerate() {
-  if (!DSG.garment) return toast('请先选择款');
-  if (!DSG.desc.trim() && !DSG.inspId) return toast('请描述改法');
+async function dsgLoadSession() {
   try {
-    const d = await api('/api/redesign', {
-      method: 'POST',
-      body: JSON.stringify({ garment_id: DSG.garment.id, base_path: DSG.basePath, insp_id: DSG.inspId, desc: DSG.desc.trim() }),
-    });
-    DSG.taskId = d.task_id; DSG.task = { status: 'generating' }; DSG.images = []; DSG.selectedId = null;
-    dsgSetStep(3); dsgRenderB(); dsgPoll();
-    toast('已开始生成，约需 10–30 秒');
-  } catch (e) { toast(e.message); }
+    const d = await api(`/api/design/sessions/${DSG.cur}`);
+    document.getElementById('dsg-title').textContent = d.session.style_no ? `${d.session.style_no} 设计` : (d.session.title || '设计台');
+    DSG.messages = d.messages;
+    dsgRenderMessages();
+  } catch (e) { toast(e.message); viewDesign(); }
 }
-async function dsgRegen() {
-  if (!DSG.taskId) return;
-  try {
-    await api(`/api/redesign/${DSG.taskId}/regenerate`, { method: 'POST', body: JSON.stringify({ params: DSG.params }) });
-    DSG.task = { status: 'generating' }; DSG.images = []; DSG.selectedId = null;
-    dsgSetStep(3); dsgRenderB(); dsgPoll();
-    toast('重新生成中');
-  } catch (e) { toast(e.message); }
+function dsgMetaLine(meta) {
+  if (!meta || !meta.model) return '';
+  return `<div class="dsg-meta">${esc(meta.model_name || meta.model)} · ${esc(meta.size || '')} · seed ${esc(String(meta.seed ?? ''))} · ${dsgCost(meta.cost)}</div>`;
 }
-async function dsgSaveVersion() {
-  if (!DSG.taskId || !DSG.selectedId) return;
-  const note = ($('#dsg-note') && $('#dsg-note').value || '').trim();
+function dsgRenderMessages() {
+  const inner = document.getElementById('dsg-inner');
+  if (!DSG.messages.length) {
+    inner.innerHTML = `<div class="chat-empty"><h2>开始设计</h2><div>直接描述画面=文生图；先点 + 传原图再描述=图生图（改颜色、细节微调）。</div></div>`;
+    return;
+  }
+  inner.innerHTML = DSG.messages.map((m) => {
+    if (m.role === 'user') {
+      const srcImg = m.image_id ? `<img class="dsg-srcimg" src="${esc(m.img_path || '')}" alt="原图">` : '';
+      return `<div class="dsg-msg user"><div class="dsg-bubble">${srcImg}${m.text ? `<div>${esc(m.text)}</div>` : ''}</div></div>`;
+    }
+    const meta = m.meta || {};
+    return `<div class="dsg-msg ai"><div class="dsg-bubble">
+      ${m.image_id ? `<img class="dsg-img" data-full="${esc(m.img_path || '')}" src="${esc(m.img_thumb || m.img_path || '')}" alt="生成图">` : `<div class="muted">${esc(m.text || '（图片已删除）')}</div>`}
+      ${dsgMetaLine(meta)}
+      <div class="dsg-actions">
+        <button class="btn ghost sm" data-regen="${m.id}">重新生成</button>
+        <button class="btn ghost sm" data-delmsg="${m.id}">删除</button>
+      </div>
+    </div></div>`;
+  }).join('');
+  const body = document.getElementById('dsg-body');
+  body.scrollTop = body.scrollHeight;
+}
+async function dsgMsgClick(e) {
+  const img = e.target.closest('.dsg-img');
+  if (img && img.dataset.full) {
+    Modal.open({ title: '生成图', body: `<img src="${esc(img.dataset.full)}" style="width:100%;border-radius:12px" alt="生成图大图">` });
+    return;
+  }
+  const regen = e.target.closest('[data-regen]');
+  if (regen) {
+    Modal.confirm({ title: '重新生成', body: '用相同参数换一个 seed 再生成一张吗？会产生新的费用。', okText: '重新生成', onOk: () => dsgRegenerate(Number(regen.dataset.regen)) });
+    return;
+  }
+  const del = e.target.closest('[data-delmsg]');
+  if (del) {
+    Modal.confirm({ title: '删除消息', body: '删除这条消息吗？生成图会一并删除（文件+记录）。', okText: '删除', onOk: async () => {
+      try { await api(`/api/design/messages/${del.dataset.delmsg}`, { method: 'DELETE' }); toast('已删除'); dsgLoadSession(); }
+      catch (err) { toast(err.message); }
+    }});
+  }
+}
+async function dsgSend() {
+  const input = document.getElementById('dsg-input');
+  const prompt = input.value.trim();
+  if (!prompt && !DSG.attach) { toast('请输入描述或上传图片'); return; }
+  if (!DSG.model) { toast('请先在管理设置里上架 visual 模型'); return; }
+  let prep;
   try {
-    const d = await api(`/api/redesign/${DSG.taskId}/select`, { method: 'POST', body: JSON.stringify({ image_id: DSG.selectedId, note }) });
-    toast(`已存为新版次 ${d.ver}`);
-    await dsgLoadHist();
-    dsgSetStep(1); dsgRenderA(); dsgRenderB();
+    prep = await api('/api/design/prepare', { method: 'POST', body: JSON.stringify({
+      prompt, image_id: DSG.attach ? DSG.attach.id : null,
+      model_id: DSG.model, clarity: DSG.clarity, ratio: DSG.ratio,
+    })});
+  } catch (e) { toast(e.message); return; }
+  const ratioNote = prep.ratioFrom === 'prompt' ? '（从描述中识别）' : prep.ratioFrom === 'ui' ? '（手动选择）' : '（默认）';
+  Modal.open({ title: '确认生成', body: `
+    <div class="dsg-confirm">
+      <div class="frm-row"><span class="muted">模型</span><b>${esc(prep.model_name)}</b></div>
+      <div class="frm-row"><span class="muted">方式</span><b>${prep.has_image ? '图生图（原图+描述）' : '文生图'}</b></div>
+      <div class="frm-row"><span class="muted">比例</span><b>${esc(prep.ratio)} ${ratioNote}</b></div>
+      <div class="frm-row"><span class="muted">尺寸</span><b>${esc(prep.size)}（清晰度${DSG_CLARITY_LABEL[prep.clarity] || ''}）</b></div>
+      <div class="frm-row"><span class="muted">seed</span><b>${esc(String(prep.seed))}</b></div>
+      <div class="frm-row"><span class="muted">本次消耗</span><b class="dsg-cost">${dsgCost(prep.cost)}</b></div>
+      <div class="frm-row"><span class="muted">描述</span><span>${esc(prep.prompt_clean || prompt)}</span></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn ghost" id="dsg-cancel">取消</button>
+      <button class="btn" id="dsg-confirm-go">确认生成</button>
+    </div>` });
+  document.getElementById('dsg-cancel').onclick = () => Modal.close();
+  document.getElementById('dsg-confirm-go').onclick = async () => {
+    Modal.close();
+    input.value = '';
+    const attachId = DSG.attach ? DSG.attach.id : null;
+    DSG.attach = null;
+    const pv = document.getElementById('dsg-attach-preview');
+    if (pv) { pv.style.display = 'none'; pv.innerHTML = ''; }
+    // 先行渲染用户消息 + 生成中占位
+    DSG.messages.push({ id: 'tmp-u', role: 'user', text: prompt, image_id: attachId, img_path: prep.image_path });
+    DSG.messages.push({ id: 'tmp-a', role: 'ai', text: '', image_id: null, meta: { model: prep.model_id, model_name: prep.model_name, size: prep.size, seed: prep.seed, cost: prep.cost, pending: true } });
+    dsgRenderMessages();
+    const inner = document.getElementById('dsg-inner');
+    const pend = inner.lastElementChild;
+    if (pend) pend.querySelector('.dsg-bubble').innerHTML = '<div class="dsg-generating"><span class="spin"></span>生成中…（最长约3分钟，可先干别的）</div>';
+    try {
+      await api('/api/design/generate', { method: 'POST', body: JSON.stringify({
+        session_id: DSG.cur, prompt, image_id: attachId,
+        model_id: DSG.model, clarity: DSG.clarity, ratio: DSG.ratio, seed: prep.seed,
+      })});
+      toast('已生成，记入资产库');
+    } catch (e) { toast(e.message); }
+    dsgLoadSession();
+  };
+}
+async function dsgRegenerate(msgId) {
+  DSG.messages.push({ id: 'tmp-r', role: 'ai', text: '', image_id: null, meta: { pending: true } });
+  dsgRenderMessages();
+  const inner = document.getElementById('dsg-inner');
+  const pend = inner.lastElementChild;
+  if (pend) pend.querySelector('.dsg-bubble').innerHTML = '<div class="dsg-generating"><span class="spin"></span>重新生成中…</div>';
+  try {
+    await api(`/api/design/messages/${msgId}/regenerate`, { method: 'POST' });
+    toast('已生成，记入资产库');
   } catch (e) { toast(e.message); }
+  dsgLoadSession();
 }
 
-/* ---------------- 资产库（v0.16.9） ---------------- */
-let AST = null;
+// ---------- 资产库 ----------
+const ASSETS = { list: [], kind: '', garment: '' };
 async function viewAssets() {
-  setNav('assets');
-  AST = { type: 'candidate', garment_id: '', garments: [], items: [] };
-  app.innerHTML = `${topbar('资产库')}
-  <div class="page"><div class="card" style="padding:10px">
-    <div class="rowline">
-      <div class="seg" style="margin:0">
-        <button class="chip" data-t="candidate">设计候选图</button>
-        <button class="chip" data-t="inspiration">灵感库</button>
-      </div>
-      <button class="btn sm ghost" id="ast-up" style="margin-left:auto">上传灵感图</button>
+  const root = document.getElementById('app-root');
+  root.innerHTML = `
+  <div class="page">
+    <div class="page-head">
+      <button class="iconbtn" id="as-menu" aria-label="菜单"><svg class="ic" viewBox="0 0 24 24" width="20" height="20"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+      <h1>资产库</h1>
     </div>
-    <div class="frow mt8" style="margin-bottom:0"><select id="ast-g"><option value="">全部款</option></select></div>
-  </div><div id="ast-grid" class="asset-grid"></div></div>`;
-  AST.garments = await api('/api/garments').catch(() => []);
-  const gs = $('#ast-g');
-  AST.garments.forEach((g) => { const o = document.createElement('option'); o.value = g.id; o.textContent = `${g.style_no} ${g.name}`; gs.appendChild(o); });
-  gs.onchange = () => { AST.garment_id = gs.value; astLoad(); };
-  app.querySelectorAll('[data-t]').forEach((b) => b.onclick = () => { AST.type = b.dataset.t; astPaintTabs(); astLoad(); });
-  $('#ast-up').onclick = astUploadModal;
-  astPaintTabs(); astLoad();
+    <div class="dsg-controls">
+      <select id="as-kind" class="dsg-sel">
+        <option value="">全部类型</option>
+        <option value="generate">生成图</option>
+        <option value="upload">上传图</option>
+      </select>
+      <select id="as-garment" class="dsg-sel"><option value="">全部款</option></select>
+    </div>
+    <div id="as-grid" class="as-grid"></div>
+  </div>`;
+  document.getElementById('as-menu').onclick = () => root.classList.add('sidebar-open');
+  document.getElementById('as-kind').onchange = (e) => { ASSETS.kind = e.target.value; asRender(); };
+  document.getElementById('as-garment').onchange = (e) => { ASSETS.garment = e.target.value; asRender(); };
+  await asLoad();
 }
-function astPaintTabs() {
-  app.querySelectorAll('[data-t]').forEach((b) => b.classList.toggle('on', b.dataset.t === AST.type));
-  $('#ast-up').style.display = AST.type === 'inspiration' ? '' : 'none';
+async function asLoad() {
+  const q = new URLSearchParams();
+  if (ASSETS.kind) q.set('kind', ASSETS.kind);
+  if (ASSETS.garment) q.set('garment_id', ASSETS.garment);
+  ASSETS.list = await api('/api/assets?' + q.toString()).catch(() => []);
+  const gs = {};
+  ASSETS.list.forEach((a) => { if (a.garment_id) gs[a.garment_id] = a.style_no || ('款' + a.garment_id); });
+  const gsel = document.getElementById('as-garment');
+  gsel.innerHTML = '<option value="">全部款</option>' + Object.entries(gs).map(([id, n]) =>
+    `<option value="${id}"${ASSETS.garment === id ? ' selected' : ''}>${esc(n)}</option>`).join('');
+  asRender();
 }
-async function astLoad() {
-  const q = new URLSearchParams({ type: AST.type, ...(AST.garment_id ? { garment_id: AST.garment_id } : {}) });
-  AST.items = await api(`/api/assets?${q}`).catch(() => []);
-  const g = $('#ast-grid');
-  g.innerHTML = AST.items.length ? AST.items.map((it, i) => `
-    <button class="asset" data-i="${i}"><img src="${esc(it.thumb_path || it.path)}" loading="lazy">
-    ${it.selected ? '<span class="cand-pick">已选定</span>' : ''}</button>`).join('')
-    : '<div class="empty">暂无图片</div>';
-  g.querySelectorAll('[data-i]').forEach((b) => b.onclick = () => astDetail(AST.items[Number(b.dataset.i)]));
+function asRender() {
+  const g = document.getElementById('as-grid');
+  g.innerHTML = ASSETS.list.length ? ASSETS.list.map((a) => `
+    <div class="as-card" data-id="${a.id}">
+      <img loading="lazy" src="${esc(a.thumb_path || a.path)}" alt="资产图">
+      <div class="as-meta">
+        <div class="as-prompt">${esc((a.prompt || a.note || '').slice(0, 40) || (a.kind === 'upload' ? '上传图' : '生成图'))}</div>
+        <div class="muted small">${esc(a.model || '')}${a.size ? ` · ${esc(a.size)}` : ''}</div>
+      </div>
+    </div>`).join('')
+    : '<div class="empty">还没有图片资产。在设计台生成或上传图片后会自动记入这里。</div>';
+  g.querySelectorAll('.as-card').forEach((c) => { c.onclick = () => asDetail(Number(c.dataset.id)); });
 }
-function astDetail(it) {
-  const gname = (AST.garments.find((x) => String(x.id) === String(it.garment_id)) || {}).style_no || '';
-  Modal.open({
-    title: it.kind === 'candidate' ? '候选图' : '灵感图',
-    body: `<img class="ast-big" src="${esc(it.path)}">
-      <div class="muted mt4">${esc(gname)} · ${esc(fmtDate(it.created_at))}${it.source_url ? ` · <a href="${esc(it.source_url)}" target="_blank" rel="noopener">来源</a>` : ''}</div>
-      <label class="fl">备注</label><textarea id="ast-note">${esc(it.note || '')}</textarea>
-      <div class="modal-controls"><div class="ctrlrow">
-        <button class="btn sm" id="ast-save">保存备注</button>
-        ${it.kind === 'inspiration' ? '<button class="btn sm ghost" id="ast-redesign">以此新建改款</button>' : ''}
-        <button class="btn sm danger" id="ast-del">删除</button>
-      </div></div>`,
-  });
-  $('#ast-save').onclick = async () => {
-    try { await api(`/api/assets/${it.kind}/${it.id}`, { method: 'PUT', body: JSON.stringify({ note: $('#ast-note').value }) }); toast('备注已保存'); Modal.clear(); astLoad(); }
-    catch (e) { toast(e.message); }
-  };
-  $('#ast-del').onclick = () => Modal.confirm({
-    title: '删除图片', body: '将同时删除文件和记录，不可恢复。', okText: '删除',
-    onOk: async () => {
-      try { await api(`/api/assets/${it.kind}/${it.id}`, { method: 'DELETE' }); toast('已删除'); Modal.clear(); astLoad(); }
-      catch (e) { toast(e.message); }
-    },
-  });
-  const rd = $('#ast-redesign');
-  if (rd) rd.onclick = () => {
-    sessionStorage.setItem('dsg_insp', JSON.stringify({ id: it.id, path: it.path, note: it.note, garment_id: it.garment_id }));
-    Modal.clear(); location.hash = '#/design';
-  };
-}
-function astUploadModal() {
-  Modal.open({
-    title: '上传灵感图',
-    body: `<label class="fl">图片</label><input type="file" id="ast-file" accept="image/*">
-      <label class="fl">备注</label><input id="ast-note2" placeholder="如：蕾丝花型参考">
-      <label class="fl">来源链接（可选）</label><input id="ast-src" placeholder="https://">
-      <label class="fl">关联款（可选）</label><select id="ast-g2"><option value="">不关联</option>
-        ${AST.garments.map((g) => `<option value="${g.id}">${esc(g.style_no)} ${esc(g.name)}</option>`).join('')}</select>
-      <div class="modal-controls"><button class="btn" id="ast-do">上传</button></div>`,
-  });
-  $('#ast-do').onclick = async () => {
-    const f = $('#ast-file').files && $('#ast-file').files[0];
-    if (!f) return toast('请先选择图片');
+function asDetail(id) {
+  const a = ASSETS.list.find((x) => x.id === id);
+  if (!a) return;
+  Modal.open({ title: '资产详情', body: `
+    <img src="${esc(a.path)}" style="width:100%;border-radius:12px" alt="资产大图">
+    <div class="frm-sec" style="margin-top:8px">
+      <div class="frm-row"><span class="muted">类型</span><b>${a.kind === 'upload' ? '上传图' : '生成图'}</b></div>
+      ${a.model ? `<div class="frm-row"><span class="muted">模型</span><b>${esc(a.model)}</b></div>` : ''}
+      ${a.size ? `<div class="frm-row"><span class="muted">尺寸</span><b>${esc(a.size)}</b></div>` : ''}
+      ${a.seed != null ? `<div class="frm-row"><span class="muted">seed</span><b>${esc(String(a.seed))}</b></div>` : ''}
+      ${a.cost ? `<div class="frm-row"><span class="muted">费用</span><b>${dsgCost(a.cost)}</b></div>` : ''}
+      ${a.prompt ? `<div class="frm-row"><span class="muted">描述</span><span>${esc(a.prompt)}</span></div>` : ''}
+    </div>
+    <label class="fl">备注</label>
+    <textarea id="as-note" rows="2" placeholder="给这张图写点备注…">${esc(a.note || '')}</textarea>
+    <div class="modal-foot">
+      <button class="btn danger ghost" id="as-del">删除</button>
+      <span style="flex:1"></span>
+      <button class="btn ghost" id="as-cancel">关闭</button>
+      <button class="btn" id="as-save">保存备注</button>
+    </div>` });
+  document.getElementById('as-cancel').onclick = () => Modal.close();
+  document.getElementById('as-save').onclick = async () => {
     try {
-      const du = await fileToDataUrl(f);
-      const up = await api('/api/design/upload', { method: 'POST', body: JSON.stringify({ dataUrl: du, kind: 'inspiration' }) });
-      await api('/api/inspirations', {
-        method: 'POST',
-        body: JSON.stringify({ path: up.path, note: $('#ast-note2').value.trim(), source_url: $('#ast-src').value.trim(), garment_id: $('#ast-g2').value || null }),
-      });
-      toast('灵感图已入库'); Modal.clear(); astLoad();
+      await api(`/api/assets/${id}`, { method: 'PUT', body: JSON.stringify({ note: document.getElementById('as-note').value }) });
+      a.note = document.getElementById('as-note').value;
+      toast('备注已保存'); Modal.close(); asRender();
     } catch (e) { toast(e.message); }
+  };
+  document.getElementById('as-del').onclick = () => {
+    Modal.confirm({ title: '删除资产', body: '删除这张图片吗？文件和记录都会删，不可恢复。', okText: '删除', onOk: async () => {
+      try {
+        await api(`/api/assets/${id}`, { method: 'DELETE' });
+        toast('已删除'); Modal.close();
+        ASSETS.list = ASSETS.list.filter((x) => x.id !== id);
+        asRender();
+      } catch (e) { toast(e.message); }
+    }});
   };
 }
